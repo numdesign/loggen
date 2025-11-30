@@ -5,12 +5,115 @@ const copyBtn = document.querySelector("#copy-btn");
 const logBlocksContainer = document.querySelector("#log-blocks");
 const addBlockBtn = document.querySelector("#add-block-btn");
 
+// ===== LocalStorage 키 =====
+const STORAGE_KEYS = {
+    SETTINGS: "loggen_settings",
+    BLOCKS: "loggen_blocks",
+    BLOCK_COUNTER: "loggen_block_counter",
+    USER_PRESETS: "loggen_user_presets"
+};
+
 // ===== 유틸리티 함수 =====
 function escapeHTML(str) {
     return str
         .replace(/&/g, "&amp;")
         .replace(/</g, "&lt;")
         .replace(/>/g, "&gt;");
+}
+
+// ===== LocalStorage 저장/불러오기 =====
+function saveToStorage() {
+    try {
+        localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(settings));
+        localStorage.setItem(STORAGE_KEYS.BLOCKS, JSON.stringify(logBlocks));
+        localStorage.setItem(STORAGE_KEYS.BLOCK_COUNTER, blockIdCounter.toString());
+    } catch (e) {
+        console.warn("LocalStorage 저장 실패:", e);
+    }
+}
+
+function loadFromStorage() {
+    try {
+        // 설정 불러오기
+        const savedSettings = localStorage.getItem(STORAGE_KEYS.SETTINGS);
+        if (savedSettings) {
+            const parsed = JSON.parse(savedSettings);
+            Object.assign(settings, parsed);
+        }
+
+        // 블록 불러오기
+        const savedBlocks = localStorage.getItem(STORAGE_KEYS.BLOCKS);
+        if (savedBlocks) {
+            logBlocks = JSON.parse(savedBlocks);
+        }
+
+        // 블록 카운터 불러오기
+        const savedCounter = localStorage.getItem(STORAGE_KEYS.BLOCK_COUNTER);
+        if (savedCounter) {
+            blockIdCounter = parseInt(savedCounter, 10);
+        }
+
+        return logBlocks.length > 0;
+    } catch (e) {
+        console.warn("LocalStorage 불러오기 실패:", e);
+        return false;
+    }
+}
+
+// 사용자 프리셋 저장/불러오기
+function saveUserPreset(name) {
+    try {
+        const presets = getUserPresets();
+        const preset = {
+            name,
+            createdAt: Date.now(),
+            settings: { ...settings }
+        };
+        // 같은 이름이 있으면 덮어쓰기
+        const existingIndex = presets.findIndex(p => p.name === name);
+        if (existingIndex >= 0) {
+            presets[existingIndex] = preset;
+        } else {
+            presets.push(preset);
+        }
+        localStorage.setItem(STORAGE_KEYS.USER_PRESETS, JSON.stringify(presets));
+        return true;
+    } catch (e) {
+        console.warn("프리셋 저장 실패:", e);
+        return false;
+    }
+}
+
+function getUserPresets() {
+    try {
+        const saved = localStorage.getItem(STORAGE_KEYS.USER_PRESETS);
+        return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+        return [];
+    }
+}
+
+function deleteUserPreset(name) {
+    try {
+        const presets = getUserPresets().filter(p => p.name !== name);
+        localStorage.setItem(STORAGE_KEYS.USER_PRESETS, JSON.stringify(presets));
+        return true;
+    } catch (e) {
+        return false;
+    }
+}
+
+function loadUserPreset(name) {
+    const presets = getUserPresets();
+    const preset = presets.find(p => p.name === name);
+    if (preset) {
+        Object.assign(settings, preset.settings);
+        syncUIFromSettings();
+        updatePreview();
+        saveToStorage();
+        return true;
+    }
+    return false;
 }
 
 function escapeAttr(str) {
@@ -21,7 +124,7 @@ function escapeAttr(str) {
 let logBlocks = [];
 let blockIdCounter = 0;
 
-function createLogBlock(title = "", content = "", collapsible = false) {
+function createLogBlock(title = "", content = "", collapsible = false, skipSave = false) {
     const id = blockIdCounter++;
     const block = {
         id,
@@ -33,6 +136,7 @@ function createLogBlock(title = "", content = "", collapsible = false) {
     logBlocks.push(block);
     renderLogBlocks();
     updatePreview();
+    if (!skipSave) saveToStorage();
     return block;
 }
 
@@ -40,6 +144,7 @@ function removeLogBlock(id) {
     logBlocks = logBlocks.filter(b => b.id !== id);
     renderLogBlocks();
     updatePreview();
+    saveToStorage();
 }
 
 function updateLogBlock(id, updates) {
@@ -47,15 +152,95 @@ function updateLogBlock(id, updates) {
     if (block) {
         Object.assign(block, updates);
         updatePreview();
+        saveToStorage();
     }
+}
+
+// ===== 드래그 앤 드롭 =====
+let draggedBlockId = null;
+let dragOverBlockId = null;
+
+function setupBlockDragEvents(blockEl, blockId) {
+    const dragHandle = blockEl.querySelector('.log-block-btn--drag');
+
+    // 드래그 핸들에서만 드래그 시작 허용
+    dragHandle.addEventListener('mousedown', () => {
+        blockEl.setAttribute('draggable', 'true');
+    });
+
+    blockEl.addEventListener('dragstart', (e) => {
+        draggedBlockId = blockId;
+        blockEl.classList.add('dragging');
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', blockId.toString());
+    });
+
+    blockEl.addEventListener('dragend', () => {
+        draggedBlockId = null;
+        dragOverBlockId = null;
+        blockEl.classList.remove('dragging');
+        document.querySelectorAll('.log-block').forEach(el => {
+            el.classList.remove('drag-over', 'drag-over-top', 'drag-over-bottom');
+        });
+    });
+
+    blockEl.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        if (draggedBlockId === null || draggedBlockId === blockId) return;
+
+        const rect = blockEl.getBoundingClientRect();
+        const midY = rect.top + rect.height / 2;
+        const isAbove = e.clientY < midY;
+
+        blockEl.classList.remove('drag-over-top', 'drag-over-bottom');
+        blockEl.classList.add(isAbove ? 'drag-over-top' : 'drag-over-bottom');
+        dragOverBlockId = blockId;
+    });
+
+    blockEl.addEventListener('dragleave', () => {
+        blockEl.classList.remove('drag-over-top', 'drag-over-bottom');
+    });
+
+    blockEl.addEventListener('drop', (e) => {
+        e.preventDefault();
+        if (draggedBlockId === null || draggedBlockId === blockId) return;
+
+        const rect = blockEl.getBoundingClientRect();
+        const midY = rect.top + rect.height / 2;
+        const isAbove = e.clientY < midY;
+
+        // 블록 순서 재배치
+        const draggedIndex = logBlocks.findIndex(b => b.id === draggedBlockId);
+        const targetIndex = logBlocks.findIndex(b => b.id === blockId);
+
+        if (draggedIndex !== -1 && targetIndex !== -1) {
+            const [draggedBlock] = logBlocks.splice(draggedIndex, 1);
+            let insertIndex = targetIndex;
+
+            // 드래그된 블록이 위에서 왔으면 인덱스 조정
+            if (draggedIndex < targetIndex) {
+                insertIndex = isAbove ? targetIndex - 1 : targetIndex;
+            } else {
+                insertIndex = isAbove ? targetIndex : targetIndex + 1;
+            }
+
+            logBlocks.splice(insertIndex, 0, draggedBlock);
+            renderLogBlocks();
+            updatePreview();
+            saveToStorage();
+        }
+
+        blockEl.classList.remove('drag-over-top', 'drag-over-bottom');
+    });
 }
 
 function renderLogBlocks() {
     if (!logBlocksContainer) return;
 
     logBlocksContainer.innerHTML = logBlocks.map(block => `
-        <div class="log-block ${block.collapsed ? 'collapsed' : ''}" data-block-id="${block.id}">
+        <div class="log-block ${block.collapsed ? 'collapsed' : ''}" data-block-id="${block.id}" draggable="true">
             <div class="log-block-header">
+                <button type="button" class="log-block-btn log-block-btn--drag" title="드래그하여 순서 변경">☰</button>
                 <button type="button" class="log-block-btn log-block-btn--collapse ${block.collapsed ? 'collapsed' : ''}" title="접기/펼치기">▼</button>
                 <input type="text" class="log-block-title" value="${escapeAttr(block.title)}" placeholder="블록 제목">
                 <div class="log-block-actions">
@@ -75,6 +260,9 @@ function renderLogBlocks() {
     // 이벤트 리스너 연결
     logBlocksContainer.querySelectorAll('.log-block').forEach(blockEl => {
         const blockId = parseInt(blockEl.dataset.blockId);
+
+        // 드래그 앤 드롭 이벤트
+        setupBlockDragEvents(blockEl, blockId);
 
         // 텍스트 영역
         const textarea = blockEl.querySelector('.log-block-textarea');
@@ -125,57 +313,84 @@ const settings = {
     promptName: "",
     subModel: "",
     // 스타일
-    bgColor: "#1e1e1e",
-    textColor: "#e0e0e0",
-    charColor: "#38bdf8",
-    userColor: "#a78bfa",
-    boldColor: "#fbbf24",
-    italicColor: "#a5b4fc",
-    dialogueColor: "#86efac",
-    dialogueBgColor: "#1a2e1a",
+    bgColor: "#fafafa",
+    textColor: "#18181b",
+    charColor: "#18181b",
+    userColor: "#71717a",
+    boldColor: "#dc2626",
+    italicColor: "#6366f1",
+    dialogueColor: "#059669",
+    dialogueBgColor: "#ecfdf5",
     fontFamily: "Pretendard",
     fontSize: 16,
     containerWidth: 800,
     borderRadius: 8,
     lineHeight: 1.8,
     letterSpacing: 0,
+    // 테두리 & 그림자
+    borderWidth: 0,
+    borderColor: "#e4e4e7",
+    boxShadow: true,
+    shadowIntensity: 30,
+    // 텍스트 정렬
+    textAlign: "justify",
     // 뱃지 색상
-    badgeModelColor: "#10a37f",
-    badgePromptColor: "#6b7280",
-    badgeSubColor: "#4285f4",
+    badgeModelColor: "#18181b",
+    badgePromptColor: "#71717a",
+    badgeSubColor: "#a1a1aa",
 };
 
 // 테마 프리셋 정의
 const themePresets = {
-    "dark-default": {
-        bgColor: "#1e1e1e", textColor: "#e0e0e0", charColor: "#38bdf8",
-        boldColor: "#fbbf24", italicColor: "#a5b4fc", dialogueColor: "#86efac", dialogueBgColor: "#1a2e1a",
-        badgeModelColor: "#10a37f", badgePromptColor: "#6b7280", badgeSubColor: "#4285f4"
-    },
-    "dark-purple": {
-        bgColor: "#1a1625", textColor: "#e2e0ea", charColor: "#a78bfa",
-        boldColor: "#f472b6", italicColor: "#c4b5fd", dialogueColor: "#67e8f9", dialogueBgColor: "#1e1a2e",
-        badgeModelColor: "#8b5cf6", badgePromptColor: "#6366f1", badgeSubColor: "#ec4899"
-    },
-    "dark-green": {
-        bgColor: "#0f1f1a", textColor: "#d1fae5", charColor: "#34d399",
-        boldColor: "#fbbf24", italicColor: "#6ee7b7", dialogueColor: "#a7f3d0", dialogueBgColor: "#064e3b",
-        badgeModelColor: "#059669", badgePromptColor: "#047857", badgeSubColor: "#10b981"
-    },
-    "dark-warm": {
-        bgColor: "#1c1917", textColor: "#fef3c7", charColor: "#fb923c",
-        boldColor: "#fbbf24", italicColor: "#fdba74", dialogueColor: "#fde68a", dialogueBgColor: "#451a03",
-        badgeModelColor: "#ea580c", badgePromptColor: "#78350f", badgeSubColor: "#f59e0b"
-    },
-    "light-default": {
-        bgColor: "#ffffff", textColor: "#1f2937", charColor: "#3b82f6",
+    // 밝은 테마 5개
+    "light-clean": {
+        bgColor: "#fafafa", textColor: "#18181b", charColor: "#18181b",
         boldColor: "#dc2626", italicColor: "#6366f1", dialogueColor: "#059669", dialogueBgColor: "#ecfdf5",
-        badgeModelColor: "#2563eb", badgePromptColor: "#6b7280", badgeSubColor: "#7c3aed"
+        badgeModelColor: "#18181b", badgePromptColor: "#71717a", badgeSubColor: "#a1a1aa",
+        borderColor: "#e4e4e7"
     },
-    "light-warm": {
-        bgColor: "#fefce8", textColor: "#422006", charColor: "#ca8a04",
-        boldColor: "#dc2626", italicColor: "#b45309", dialogueColor: "#15803d", dialogueBgColor: "#fef9c3",
-        badgeModelColor: "#ca8a04", badgePromptColor: "#92400e", badgeSubColor: "#16a34a"
+    "light-rose": {
+        bgColor: "#fff1f2", textColor: "#1f1f1f", charColor: "#e11d48",
+        boldColor: "#be123c", italicColor: "#f43f5e", dialogueColor: "#9f1239", dialogueBgColor: "#ffe4e6",
+        badgeModelColor: "#e11d48", badgePromptColor: "#fb7185", badgeSubColor: "#fda4af",
+        borderColor: "#fecdd3"
+    },
+    "light-sage": {
+        bgColor: "#f0fdf4", textColor: "#14532d", charColor: "#166534",
+        boldColor: "#15803d", italicColor: "#22c55e", dialogueColor: "#166534", dialogueBgColor: "#dcfce7",
+        badgeModelColor: "#166534", badgePromptColor: "#4ade80", badgeSubColor: "#86efac",
+        borderColor: "#bbf7d0"
+    },
+    "light-lavender": {
+        bgColor: "#faf5ff", textColor: "#2e1065", charColor: "#7c3aed",
+        boldColor: "#6d28d9", italicColor: "#a78bfa", dialogueColor: "#5b21b6", dialogueBgColor: "#ede9fe",
+        badgeModelColor: "#7c3aed", badgePromptColor: "#a78bfa", badgeSubColor: "#c4b5fd",
+        borderColor: "#ddd6fe"
+    },
+    "light-ocean": {
+        bgColor: "#f0f9ff", textColor: "#0c4a6e", charColor: "#0369a1",
+        boldColor: "#0284c7", italicColor: "#38bdf8", dialogueColor: "#075985", dialogueBgColor: "#e0f2fe",
+        badgeModelColor: "#0369a1", badgePromptColor: "#38bdf8", badgeSubColor: "#7dd3fc",
+        borderColor: "#bae6fd"
+    },
+    // 어두운 테마 3개
+    "dark-midnight": {
+        bgColor: "#0f0f23", textColor: "#e2e8f0", charColor: "#818cf8",
+        boldColor: "#fbbf24", italicColor: "#a5b4fc", dialogueColor: "#67e8f9", dialogueBgColor: "#1e1b4b",
+        badgeModelColor: "#6366f1", badgePromptColor: "#818cf8", badgeSubColor: "#a5b4fc",
+        borderColor: "#312e81"
+    },
+    "dark-ember": {
+        bgColor: "#18181b", textColor: "#fafafa", charColor: "#f97316",
+        boldColor: "#fbbf24", italicColor: "#fdba74", dialogueColor: "#fb923c", dialogueBgColor: "#431407",
+        badgeModelColor: "#ea580c", badgePromptColor: "#f97316", badgeSubColor: "#fdba74",
+        borderColor: "#3f3f46"
+    },
+    "dark-noir": {
+        bgColor: "#09090b", textColor: "#f4f4f5", charColor: "#22d3ee",
+        boldColor: "#f472b6", italicColor: "#67e8f9", dialogueColor: "#2dd4bf", dialogueBgColor: "#134e4a",
+        badgeModelColor: "#06b6d4", badgePromptColor: "#22d3ee", badgeSubColor: "#67e8f9",
+        borderColor: "#27272a"
     }
 };
 
@@ -259,7 +474,7 @@ function parseMarkdown(text) {
 
 // 문단 스타일 생성
 function getParagraphStyle() {
-    return `margin: 0 0 1.2em 0; text-align: justify; word-break: keep-all;`;
+    return `margin: 0 0 1.2em 0; text-align: ${settings.textAlign}; word-break: keep-all;`;
 }
 
 // ===== HTML 생성 (인라인 스타일 div) =====
@@ -296,18 +511,18 @@ function generateHTML() {
         const tags = [];
 
         if (settings.aiModel) {
-            tags.push(`<span style="display: inline-flex; align-items: center; gap: 0.35em; padding: 0.35em 0.75em; background: ${settings.badgeModelColor}; border-radius: 20px; font-size: 0.7em; font-weight: 600; color: #fff; margin-right: 0.5em;">${settings.aiModel}</span>`);
+            tags.push(`<span style="display: inline-block; margin: 0 8px 8px 0; padding: 6px 12px; background: ${settings.badgeModelColor}; border-radius: 20px; font-size: 0.75em; font-weight: 600; color: #fff; line-height: 1.2; text-align: center; box-sizing: border-box;">${settings.aiModel}</span>`);
         }
         if (settings.promptName) {
-            tags.push(`<span style="display: inline-flex; align-items: center; gap: 0.35em; padding: 0.35em 0.75em; background: ${settings.badgePromptColor}; border-radius: 20px; font-size: 0.7em; font-weight: 600; color: #fff; margin-right: 0.5em;">${settings.promptName}</span>`);
+            tags.push(`<span style="display: inline-block; margin: 0 8px 8px 0; padding: 6px 12px; background: ${settings.badgePromptColor}; border-radius: 20px; font-size: 0.75em; font-weight: 600; color: #fff; line-height: 1.2; text-align: center; box-sizing: border-box;">${settings.promptName}</span>`);
         }
         if (settings.subModel) {
-            tags.push(`<span style="display: inline-flex; align-items: center; gap: 0.35em; padding: 0.35em 0.75em; background: transparent; border: 1.5px solid ${settings.badgeSubColor}; border-radius: 20px; font-size: 0.7em; font-weight: 600; color: ${settings.badgeSubColor}; margin-right: 0.5em;">${settings.subModel}</span>`);
+            tags.push(`<span style="display: inline-block; margin: 0 8px 8px 0; padding: 5px 11px; background: transparent; border: 1px solid ${settings.badgeSubColor}; border-radius: 20px; font-size: 0.75em; font-weight: 600; color: ${settings.badgeSubColor}; line-height: 1.2; text-align: center; box-sizing: border-box;">${settings.subModel}</span>`);
         }
 
         if (tags.length > 0) {
             const marginTop = settings.charName ? "margin-top: 1em;" : "";
-            tagsHTML = `    <div style="${marginTop} display: flex; flex-wrap: wrap; gap: 0.35em;">${tags.join("")}</div>\n`;
+            tagsHTML = `    <div style="${marginTop}">${tags.join("")}</div>\n`;
         }
 
         headerHTML = `  <div style="${headerStyle}">\n${titleHTML}${tagsHTML}  </div>\n`;
@@ -351,19 +566,31 @@ ${linesHTML}
     }).join("\n");
 
     // 컨테이너 스타일
-    const containerStyle = [
+    const containerStyleParts = [
         `max-width: ${settings.containerWidth}px`,
         `margin: 0 auto`,
         `padding: 2em`,
         `background: ${settings.bgColor}`,
         `color: ${settings.textColor}`,
-        `font-family: "${settings.fontFamily}", sans-serif`,
         `font-size: ${settings.fontSize}px`,
         `line-height: ${settings.lineHeight}`,
         `letter-spacing: ${settings.letterSpacing}em`,
         `border-radius: ${settings.borderRadius}px`,
         `box-sizing: border-box`,
-    ].join("; ");
+    ];
+
+    // 테두리 추가
+    if (settings.borderWidth > 0) {
+        containerStyleParts.push(`border: ${settings.borderWidth}px solid ${settings.borderColor}`);
+    }
+
+    // 그림자 추가
+    if (settings.boxShadow) {
+        const shadowOpacity = (settings.shadowIntensity / 100).toFixed(2);
+        containerStyleParts.push(`box-shadow: 0 4px 24px rgba(0, 0, 0, ${shadowOpacity})`);
+    }
+
+    const containerStyle = containerStyleParts.join("; ");
 
     const html = `<div style="${containerStyle}">
 ${headerHTML}${blocksHTML}
@@ -392,12 +619,26 @@ function updatePreview() {
     previewEl.style.padding = "2em";
     previewEl.style.background = settings.bgColor;
     previewEl.style.color = settings.textColor;
-    previewEl.style.fontFamily = `"${settings.fontFamily}", sans-serif`;
     previewEl.style.fontSize = `${settings.fontSize}px`;
     previewEl.style.lineHeight = settings.lineHeight;
     previewEl.style.letterSpacing = `${settings.letterSpacing}em`;
     previewEl.style.borderRadius = `${settings.borderRadius}px`;
     previewEl.style.boxSizing = "border-box";
+
+    // 테두리 적용
+    if (settings.borderWidth > 0) {
+        previewEl.style.border = `${settings.borderWidth}px solid ${settings.borderColor}`;
+    } else {
+        previewEl.style.border = "none";
+    }
+
+    // 그림자 적용
+    if (settings.boxShadow) {
+        const shadowOpacity = (settings.shadowIntensity / 100).toFixed(2);
+        previewEl.style.boxShadow = `0 4px 24px rgba(0, 0, 0, ${shadowOpacity})`;
+    } else {
+        previewEl.style.boxShadow = "none";
+    }
 
     if (blocksWithContent.length === 0) {
         previewEl.innerHTML = `<p class="placeholder-text">변환된 결과가 여기에 표시됩니다</p>`;
@@ -426,18 +667,18 @@ function updatePreview() {
             const tags = [];
 
             if (settings.aiModel) {
-                tags.push(`<span style="display: inline-flex; align-items: center; gap: 0.35em; padding: 0.35em 0.75em; background: ${settings.badgeModelColor}; border-radius: 20px; font-size: 0.7em; font-weight: 600; color: #fff;">${settings.aiModel}</span>`);
+                tags.push(`<span style="display: inline-block; margin: 0 8px 8px 0; padding: 6px 12px; background: ${settings.badgeModelColor}; border-radius: 20px; font-size: 0.75em; font-weight: 600; color: #fff; line-height: 1.2; text-align: center; box-sizing: border-box;">${settings.aiModel}</span>`);
             }
             if (settings.promptName) {
-                tags.push(`<span style="display: inline-flex; align-items: center; gap: 0.35em; padding: 0.35em 0.75em; background: ${settings.badgePromptColor}; border-radius: 20px; font-size: 0.7em; font-weight: 600; color: #fff;">${settings.promptName}</span>`);
+                tags.push(`<span style="display: inline-block; margin: 0 8px 8px 0; padding: 6px 12px; background: ${settings.badgePromptColor}; border-radius: 20px; font-size: 0.75em; font-weight: 600; color: #fff; line-height: 1.2; text-align: center; box-sizing: border-box;">${settings.promptName}</span>`);
             }
             if (settings.subModel) {
-                tags.push(`<span style="display: inline-flex; align-items: center; gap: 0.35em; padding: 0.35em 0.75em; background: transparent; border: 1.5px solid ${settings.badgeSubColor}; border-radius: 20px; font-size: 0.7em; font-weight: 600; color: ${settings.badgeSubColor};">${settings.subModel}</span>`);
+                tags.push(`<span style="display: inline-block; margin: 0 8px 8px 0; padding: 5px 11px; background: transparent; border: 1px solid ${settings.badgeSubColor}; border-radius: 20px; font-size: 0.75em; font-weight: 600; color: ${settings.badgeSubColor}; line-height: 1.2; text-align: center; box-sizing: border-box;">${settings.subModel}</span>`);
             }
 
             if (tags.length > 0) {
                 const marginTop = settings.charName ? "margin-top: 1em;" : "";
-                tagsHTML = `<div style="${marginTop} display: flex; flex-wrap: wrap; gap: 0.35em;">${tags.join("")}</div>`;
+                tagsHTML = `<div style="${marginTop}">${tags.join("")}</div>`;
             }
 
             headerHTML = `<div style="margin-bottom: 1.5em; padding: 1.5em; background: linear-gradient(135deg, ${headerBgLight} 0%, ${headerBgDark} 100%); border-radius: 16px; border: 1px solid ${borderColor}40;">${titleHTML}${tagsHTML}</div>`;
@@ -527,6 +768,7 @@ Object.entries(charInputs).forEach(([id, key]) => {
         el.addEventListener("input", (e) => {
             settings[key] = e.target.value;
             updatePreview();
+            saveToStorage();
         });
     }
 });
@@ -558,6 +800,7 @@ function setupDropdown(inputId, dropdownId, settingKey) {
             settings[settingKey] = value;
             dropdown.classList.remove("open");
             updatePreview();
+            saveToStorage();
         });
     });
 }
@@ -585,6 +828,7 @@ themePresetBtns.forEach(btn => {
         // UI 동기화
         syncUIFromSettings();
         updatePreview();
+        saveToStorage();
     });
 });
 
@@ -626,6 +870,7 @@ const colorInputs = [
     { colorId: "style-badge-model", textId: "style-badge-model-text", key: "badgeModelColor" },
     { colorId: "style-badge-prompt", textId: "style-badge-prompt-text", key: "badgePromptColor" },
     { colorId: "style-badge-sub", textId: "style-badge-sub-text", key: "badgeSubColor" },
+    { colorId: "style-border-color", textId: "style-border-color-text", key: "borderColor" },
 ];
 
 colorInputs.forEach(({ colorId, textId, key }) => {
@@ -637,6 +882,7 @@ colorInputs.forEach(({ colorId, textId, key }) => {
             settings[key] = e.target.value;
             textEl.value = e.target.value;
             updatePreview();
+            saveToStorage();
         });
 
         textEl.addEventListener("input", (e) => {
@@ -645,19 +891,11 @@ colorInputs.forEach(({ colorId, textId, key }) => {
                 settings[key] = val;
                 colorEl.value = val;
                 updatePreview();
+                saveToStorage();
             }
         });
     }
 });
-
-// 셀렉트
-const fontSelect = document.getElementById("style-font");
-if (fontSelect) {
-    fontSelect.addEventListener("change", (e) => {
-        settings.fontFamily = e.target.value;
-        updatePreview();
-    });
-}
 
 // 레인지 슬라이더
 const rangeInputs = [
@@ -666,6 +904,8 @@ const rangeInputs = [
     { id: "style-radius", key: "borderRadius", valueId: "style-radius-value", unit: "px" },
     { id: "style-line-height", key: "lineHeight", valueId: "style-line-height-value", unit: "" },
     { id: "style-letter-spacing", key: "letterSpacing", valueId: "style-letter-spacing-value", unit: "em" },
+    { id: "style-border-width", key: "borderWidth", valueId: "style-border-width-value", unit: "px" },
+    { id: "style-shadow-intensity", key: "shadowIntensity", valueId: "style-shadow-intensity-value", unit: "%" },
 ];
 
 rangeInputs.forEach(({ id, key, valueId, unit }) => {
@@ -678,9 +918,33 @@ rangeInputs.forEach(({ id, key, valueId, unit }) => {
             settings[key] = val;
             valueEl.textContent = `${val}${unit}`;
             updatePreview();
+            saveToStorage();
         });
     }
 });
+
+// 박스 그림자 토글
+const boxShadowToggle = document.getElementById("style-box-shadow");
+const boxShadowLabel = document.getElementById("style-box-shadow-label");
+
+if (boxShadowToggle && boxShadowLabel) {
+    boxShadowToggle.addEventListener("change", (e) => {
+        settings.boxShadow = e.target.checked;
+        boxShadowLabel.textContent = e.target.checked ? "켜짐" : "꺼짐";
+        updatePreview();
+        saveToStorage();
+    });
+}
+
+// 텍스트 정렬 셀렉트
+const textAlignSelect = document.getElementById("style-text-align");
+if (textAlignSelect) {
+    textAlignSelect.addEventListener("change", (e) => {
+        settings.textAlign = e.target.value;
+        updatePreview();
+        saveToStorage();
+    });
+}
 
 // ===== 복사 버튼 =====
 if (copyBtn) {
@@ -710,10 +974,156 @@ if (addBlockBtn) {
     });
 }
 
-// ===== 초기 블록 생성 =====
-createLogBlock("로그 1", "", false);
+// ===== 초기화: LocalStorage에서 불러오기 =====
+const hasStoredData = loadFromStorage();
+
+// UI 동기화 (저장된 설정 반영)
+syncUIFromSettings();
+syncAllUIFromSettings();
+
+if (hasStoredData && logBlocks.length > 0) {
+    // 저장된 블록이 있으면 렌더링
+    renderLogBlocks();
+    updatePreview();
+} else {
+    // 저장된 블록이 없으면 기본 블록 생성
+    createLogBlock("로그 1", "", false);
+}
+
+// 전체 UI 동기화 함수 (캐릭터 정보, 레인지 슬라이더 등)
+function syncAllUIFromSettings() {
+    // 캐릭터 정보 동기화
+    const charInputMap = {
+        "char-name": "charName",
+        "char-link": "charLink",
+        "ai-model": "aiModel",
+        "prompt-name": "promptName",
+        "sub-model": "subModel",
+    };
+    Object.entries(charInputMap).forEach(([id, key]) => {
+        const el = document.getElementById(id);
+        if (el && settings[key]) el.value = settings[key];
+    });
+
+    // 레인지 슬라이더 동기화
+    const rangeMap = [
+        { id: "style-font-size", key: "fontSize", valueId: "style-font-size-value", unit: "px" },
+        { id: "style-width", key: "containerWidth", valueId: "style-width-value", unit: "px" },
+        { id: "style-radius", key: "borderRadius", valueId: "style-radius-value", unit: "px" },
+        { id: "style-line-height", key: "lineHeight", valueId: "style-line-height-value", unit: "" },
+        { id: "style-letter-spacing", key: "letterSpacing", valueId: "style-letter-spacing-value", unit: "em" },
+        { id: "style-border-width", key: "borderWidth", valueId: "style-border-width-value", unit: "px" },
+        { id: "style-shadow-intensity", key: "shadowIntensity", valueId: "style-shadow-intensity-value", unit: "%" },
+    ];
+    rangeMap.forEach(({ id, key, valueId, unit }) => {
+        const rangeEl = document.getElementById(id);
+        const valueEl = document.getElementById(valueId);
+        if (rangeEl) rangeEl.value = settings[key];
+        if (valueEl) valueEl.textContent = `${settings[key]}${unit}`;
+    });
+
+    // 박스 그림자 토글 동기화
+    const boxShadowEl = document.getElementById("style-box-shadow");
+    const boxShadowLabelEl = document.getElementById("style-box-shadow-label");
+    if (boxShadowEl) boxShadowEl.checked = settings.boxShadow;
+    if (boxShadowLabelEl) boxShadowLabelEl.textContent = settings.boxShadow ? "켜짐" : "꺼짐";
+
+    // 텍스트 정렬 동기화
+    const textAlignEl = document.getElementById("style-text-align");
+    if (textAlignEl) textAlignEl.value = settings.textAlign;
+}
 
 console.log("main.js loaded successfully");
+
+// ===== 사용자 프리셋 UI =====
+const userPresetList = document.getElementById("user-preset-list");
+const userPresetNameInput = document.getElementById("user-preset-name");
+const savePresetBtn = document.getElementById("save-preset-btn");
+
+function renderUserPresets() {
+    if (!userPresetList) return;
+
+    const presets = getUserPresets();
+
+    if (presets.length === 0) {
+        userPresetList.innerHTML = `<div class="user-preset-empty">저장된 프리셋이 없습니다</div>`;
+        return;
+    }
+
+    userPresetList.innerHTML = presets.map(preset => `
+        <div class="user-preset-item" data-preset-name="${escapeAttr(preset.name)}">
+            <span class="user-preset-item-name" title="클릭하여 적용">${escapeHTML(preset.name)}</span>
+            <button type="button" class="user-preset-item-delete" title="삭제">✕</button>
+        </div>
+    `).join('');
+
+    // 이벤트 리스너 연결
+    userPresetList.querySelectorAll('.user-preset-item').forEach(item => {
+        const name = item.dataset.presetName;
+
+        // 이름 클릭 시 적용
+        item.querySelector('.user-preset-item-name').addEventListener('click', () => {
+            loadUserPreset(name);
+        });
+
+        // 삭제 버튼
+        item.querySelector('.user-preset-item-delete').addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (confirm(`"${name}" 프리셋을 삭제하시겠습니까?`)) {
+                deleteUserPreset(name);
+                renderUserPresets();
+            }
+        });
+    });
+}
+
+if (savePresetBtn && userPresetNameInput) {
+    savePresetBtn.addEventListener('click', () => {
+        const name = userPresetNameInput.value.trim();
+        if (!name) {
+            alert('프리셋 이름을 입력하세요.');
+            userPresetNameInput.focus();
+            return;
+        }
+
+        const presets = getUserPresets();
+        const exists = presets.some(p => p.name === name);
+
+        if (exists) {
+            if (!confirm(`"${name}" 프리셋이 이미 존재합니다. 덮어쓰시겠습니까?`)) {
+                return;
+            }
+        }
+
+        if (saveUserPreset(name)) {
+            userPresetNameInput.value = '';
+            renderUserPresets();
+
+            // 저장 완료 피드백
+            savePresetBtn.textContent = '✓ 저장됨!';
+            savePresetBtn.style.background = '#22c55e';
+            savePresetBtn.style.borderColor = '#22c55e';
+            savePresetBtn.style.color = '#fff';
+
+            setTimeout(() => {
+                savePresetBtn.innerHTML = '💾 저장';
+                savePresetBtn.style.background = '';
+                savePresetBtn.style.borderColor = '';
+                savePresetBtn.style.color = '';
+            }, 1500);
+        }
+    });
+
+    // Enter 키로 저장
+    userPresetNameInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+            savePresetBtn.click();
+        }
+    });
+}
+
+// 초기 프리셋 목록 렌더링
+renderUserPresets();
 
 // ===== 테마 토글 =====
 const themeToggleBtn = document.querySelector("#theme-toggle");
@@ -736,5 +1146,144 @@ if (themeToggleBtn) {
         const isLight = document.body.classList.contains("theme-light");
         setTheme(isLight ? "dark" : "light");
     });
+}
+
+// ===== 키보드 단축키 =====
+document.addEventListener('keydown', (e) => {
+    // 입력 필드에서는 단축키 무시 (? 제외)
+    const isInputFocused = document.activeElement.tagName === 'INPUT' ||
+        document.activeElement.tagName === 'TEXTAREA';
+
+    // ? 키: 도움말 모달 토글
+    if (e.key === '?' || (e.shiftKey && e.key === '/')) {
+        e.preventDefault();
+        toggleHelpModal();
+        return;
+    }
+
+    // ESC: 모달 닫기
+    if (e.key === 'Escape') {
+        closeHelpModal();
+        return;
+    }
+
+    // 입력 중이면 나머지 단축키 무시
+    if (isInputFocused) return;
+
+    // Ctrl+S: 현재 설정을 임시 저장 (LocalStorage)
+    if (e.ctrlKey && e.key === 's') {
+        e.preventDefault();
+        saveToStorage();
+        showToast('설정이 저장되었습니다');
+        return;
+    }
+
+    // Ctrl+Shift+C: HTML 복사
+    if (e.ctrlKey && e.shiftKey && e.key === 'C') {
+        e.preventDefault();
+        if (copyBtn) copyBtn.click();
+        return;
+    }
+
+    // Ctrl+N: 새 블록 추가
+    if (e.ctrlKey && e.key === 'n') {
+        e.preventDefault();
+        createLogBlock();
+        return;
+    }
+});
+
+// 토스트 메시지 표시
+function showToast(message) {
+    // 기존 토스트 제거
+    const existingToast = document.querySelector('.toast-message');
+    if (existingToast) existingToast.remove();
+
+    const toast = document.createElement('div');
+    toast.className = 'toast-message';
+    toast.textContent = message;
+    document.body.appendChild(toast);
+
+    // 애니메이션
+    setTimeout(() => toast.classList.add('show'), 10);
+    setTimeout(() => {
+        toast.classList.remove('show');
+        setTimeout(() => toast.remove(), 300);
+    }, 2000);
+}
+
+// ===== 도움말 모달 =====
+function createHelpModal() {
+    const modal = document.createElement('div');
+    modal.id = 'help-modal';
+    modal.className = 'help-modal';
+    modal.innerHTML = `
+        <div class="help-modal-backdrop"></div>
+        <div class="help-modal-content">
+            <div class="help-modal-header">
+                <h2>⌨️ 키보드 단축키</h2>
+                <button class="help-modal-close" type="button">✕</button>
+            </div>
+            <div class="help-modal-body">
+                <div class="shortcut-group">
+                    <h3>일반</h3>
+                    <div class="shortcut-item">
+                        <span class="shortcut-key">?</span>
+                        <span class="shortcut-desc">도움말 열기/닫기</span>
+                    </div>
+                    <div class="shortcut-item">
+                        <span class="shortcut-key">Esc</span>
+                        <span class="shortcut-desc">모달 닫기</span>
+                    </div>
+                </div>
+                <div class="shortcut-group">
+                    <h3>편집</h3>
+                    <div class="shortcut-item">
+                        <span class="shortcut-key">Ctrl + N</span>
+                        <span class="shortcut-desc">새 블록 추가</span>
+                    </div>
+                    <div class="shortcut-item">
+                        <span class="shortcut-key">Ctrl + S</span>
+                        <span class="shortcut-desc">설정 저장</span>
+                    </div>
+                    <div class="shortcut-item">
+                        <span class="shortcut-key">Ctrl + Shift + C</span>
+                        <span class="shortcut-desc">HTML 코드 복사</span>
+                    </div>
+                </div>
+                <div class="shortcut-group">
+                    <h3>팁</h3>
+                    <p class="shortcut-tip">☰ 아이콘을 드래그하여 블록 순서를 변경할 수 있습니다.</p>
+                    <p class="shortcut-tip">설정은 자동으로 브라우저에 저장됩니다.</p>
+                </div>
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    // 이벤트 리스너
+    modal.querySelector('.help-modal-backdrop').addEventListener('click', closeHelpModal);
+    modal.querySelector('.help-modal-close').addEventListener('click', closeHelpModal);
+}
+
+function toggleHelpModal() {
+    let modal = document.getElementById('help-modal');
+    if (!modal) {
+        createHelpModal();
+        modal = document.getElementById('help-modal');
+    }
+    modal.classList.toggle('open');
+}
+
+function closeHelpModal() {
+    const modal = document.getElementById('help-modal');
+    if (modal) modal.classList.remove('open');
+}
+
+// 도움말 버튼 이벤트
+const helpBtn = document.getElementById('help-btn');
+if (helpBtn) {
+    helpBtn.addEventListener('click', toggleHelpModal);
 }
 

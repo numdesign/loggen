@@ -25,6 +25,9 @@
       </span>
     </button>
 
+    <!-- 도움말 버튼 (우상단) -->
+    <button id="help-btn" class="help-btn" type="button" aria-label="도움말" title="키보드 단축키 (?)">?</button>
+
     <!-- 히어로 섹션: 제목 -->
     <header class="hero">
       <h1 class="hero-title">챗챈 로그 제조기 V2</h1>
@@ -42,6 +45,7 @@
             <button class="settings-tab active" data-tab="character">캐릭터</button>
             <button class="settings-tab" data-tab="design">디자인</button>
             <button class="settings-tab" data-tab="style">스타일</button>
+            <button class="settings-tab" data-tab="custom">커스텀</button>
           </div>
 
           <!-- 캐릭터 정보 탭 -->
@@ -94,45 +98,69 @@
             <div class="setting-group">
               <label class="setting-label">테마 프리셋</label>
               <div class="theme-preset-wrap">
-                <button type="button" class="theme-preset active" data-theme="dark-default" title="기본 다크">
+                <button type="button" class="theme-preset active" data-theme="light-clean" title="클린 화이트">
                   <span class="preset-swatch"
-                    style="background: linear-gradient(135deg, #1e1e1e 50%, #38bdf8 50%);"></span>
+                    style="background: linear-gradient(135deg, #fafafa 50%, #18181b 50%);"></span>
                 </button>
-                <button type="button" class="theme-preset" data-theme="dark-purple" title="퍼플 나이트">
+                <button type="button" class="theme-preset" data-theme="light-rose" title="로즈 쿠키">
                   <span class="preset-swatch"
-                    style="background: linear-gradient(135deg, #1a1625 50%, #a78bfa 50%);"></span>
+                    style="background: linear-gradient(135deg, #fff1f2 50%, #e11d48 50%);"></span>
                 </button>
-                <button type="button" class="theme-preset" data-theme="dark-green" title="포레스트">
+                <button type="button" class="theme-preset" data-theme="light-sage" title="세이지 미스트">
                   <span class="preset-swatch"
-                    style="background: linear-gradient(135deg, #0f1f1a 50%, #34d399 50%);"></span>
+                    style="background: linear-gradient(135deg, #f0fdf4 50%, #166534 50%);"></span>
                 </button>
-                <button type="button" class="theme-preset" data-theme="dark-warm" title="웜 다크">
+                <button type="button" class="theme-preset" data-theme="light-lavender" title="라벤더 드림">
                   <span class="preset-swatch"
-                    style="background: linear-gradient(135deg, #1c1917 50%, #fb923c 50%);"></span>
+                    style="background: linear-gradient(135deg, #faf5ff 50%, #7c3aed 50%);"></span>
                 </button>
-                <button type="button" class="theme-preset" data-theme="light-default" title="기본 라이트">
+                <button type="button" class="theme-preset" data-theme="light-ocean" title="오션 브리즈">
                   <span class="preset-swatch"
-                    style="background: linear-gradient(135deg, #ffffff 50%, #3b82f6 50%);"></span>
+                    style="background: linear-gradient(135deg, #f0f9ff 50%, #0369a1 50%);"></span>
                 </button>
-                <button type="button" class="theme-preset" data-theme="light-warm" title="크림">
+                <button type="button" class="theme-preset" data-theme="dark-midnight" title="미드나잇 인크">
                   <span class="preset-swatch"
-                    style="background: linear-gradient(135deg, #fefce8 50%, #ca8a04 50%);"></span>
+                    style="background: linear-gradient(135deg, #0f0f23 50%, #818cf8 50%);"></span>
+                </button>
+                <button type="button" class="theme-preset" data-theme="dark-ember" title="엠버 글로우">
+                  <span class="preset-swatch"
+                    style="background: linear-gradient(135deg, #18181b 50%, #f97316 50%);"></span>
+                </button>
+                <button type="button" class="theme-preset" data-theme="dark-noir" title="네온 느아르">
+                  <span class="preset-swatch"
+                    style="background: linear-gradient(135deg, #09090b 50%, #22d3ee 50%);"></span>
                 </button>
               </div>
             </div>
+
+            <!-- 내 프리셋 저장/불러오기 -->
+            <div class="setting-group">
+              <label class="setting-label">내 프리셋</label>
+              <div class="user-preset-controls">
+                <div class="user-preset-save">
+                  <input type="text" class="setting-input" id="user-preset-name" placeholder="프리셋 이름 입력"
+                    autocomplete="off">
+                  <button type="button" class="preset-save-btn" id="save-preset-btn" title="현재 설정 저장">💾 저장</button>
+                </div>
+                <div class="user-preset-list" id="user-preset-list">
+                  <!-- 저장된 프리셋이 여기에 표시됨 -->
+                </div>
+              </div>
+            </div>
+
             <div class="setting-row">
               <div class="setting-group">
                 <label class="setting-label">배경색</label>
                 <div class="color-input-wrap">
-                  <input type="color" class="setting-color" id="style-bg" value="#1e1e1e">
-                  <input type="text" class="setting-input setting-input--color" id="style-bg-text" value="#1e1e1e">
+                  <input type="color" class="setting-color" id="style-bg" value="#fafafa">
+                  <input type="text" class="setting-input setting-input--color" id="style-bg-text" value="#fafafa">
                 </div>
               </div>
               <div class="setting-group">
                 <label class="setting-label">글자색</label>
                 <div class="color-input-wrap">
-                  <input type="color" class="setting-color" id="style-text" value="#e0e0e0">
-                  <input type="text" class="setting-input setting-input--color" id="style-text-text" value="#e0e0e0">
+                  <input type="color" class="setting-color" id="style-text" value="#18181b">
+                  <input type="text" class="setting-input setting-input--color" id="style-text-text" value="#18181b">
                 </div>
               </div>
             </div>
@@ -140,15 +168,15 @@
               <div class="setting-group">
                 <label class="setting-label">캐릭터 이름 색</label>
                 <div class="color-input-wrap">
-                  <input type="color" class="setting-color" id="style-char" value="#38bdf8">
-                  <input type="text" class="setting-input setting-input--color" id="style-char-text" value="#38bdf8">
+                  <input type="color" class="setting-color" id="style-char" value="#18181b">
+                  <input type="text" class="setting-input setting-input--color" id="style-char-text" value="#18181b">
                 </div>
               </div>
               <div class="setting-group">
                 <label class="setting-label">유저 이름 색</label>
                 <div class="color-input-wrap">
-                  <input type="color" class="setting-color" id="style-user" value="#a78bfa">
-                  <input type="text" class="setting-input setting-input--color" id="style-user-text" value="#a78bfa">
+                  <input type="color" class="setting-color" id="style-user" value="#71717a">
+                  <input type="text" class="setting-input setting-input--color" id="style-user-text" value="#71717a">
                 </div>
               </div>
             </div>
@@ -156,15 +184,15 @@
               <div class="setting-group">
                 <label class="setting-label">강조(**볼드**) 색</label>
                 <div class="color-input-wrap">
-                  <input type="color" class="setting-color" id="style-bold" value="#fbbf24">
-                  <input type="text" class="setting-input setting-input--color" id="style-bold-text" value="#fbbf24">
+                  <input type="color" class="setting-color" id="style-bold" value="#dc2626">
+                  <input type="text" class="setting-input setting-input--color" id="style-bold-text" value="#dc2626">
                 </div>
               </div>
               <div class="setting-group">
                 <label class="setting-label">이탤릭(*기울임*) 색</label>
                 <div class="color-input-wrap">
-                  <input type="color" class="setting-color" id="style-italic" value="#a5b4fc">
-                  <input type="text" class="setting-input setting-input--color" id="style-italic-text" value="#a5b4fc">
+                  <input type="color" class="setting-color" id="style-italic" value="#6366f1">
+                  <input type="text" class="setting-input setting-input--color" id="style-italic-text" value="#6366f1">
                 </div>
               </div>
             </div>
@@ -172,17 +200,17 @@
               <div class="setting-group">
                 <label class="setting-label">대사("") 색</label>
                 <div class="color-input-wrap">
-                  <input type="color" class="setting-color" id="style-dialogue" value="#86efac">
+                  <input type="color" class="setting-color" id="style-dialogue" value="#059669">
                   <input type="text" class="setting-input setting-input--color" id="style-dialogue-text"
-                    value="#86efac">
+                    value="#059669">
                 </div>
               </div>
               <div class="setting-group">
                 <label class="setting-label">대사 배경색</label>
                 <div class="color-input-wrap">
-                  <input type="color" class="setting-color" id="style-dialogue-bg" value="#1a2e1a">
+                  <input type="color" class="setting-color" id="style-dialogue-bg" value="#ecfdf5">
                   <input type="text" class="setting-input setting-input--color" id="style-dialogue-bg-text"
-                    value="#1a2e1a">
+                    value="#ecfdf5">
                 </div>
               </div>
             </div>
@@ -191,17 +219,17 @@
               <div class="setting-group">
                 <label class="setting-label">모델 뱃지 색</label>
                 <div class="color-input-wrap">
-                  <input type="color" class="setting-color" id="style-badge-model" value="#10a37f">
+                  <input type="color" class="setting-color" id="style-badge-model" value="#18181b">
                   <input type="text" class="setting-input setting-input--color" id="style-badge-model-text"
-                    value="#10a37f">
+                    value="#18181b">
                 </div>
               </div>
               <div class="setting-group">
                 <label class="setting-label">프롬프트 뱃지 색</label>
                 <div class="color-input-wrap">
-                  <input type="color" class="setting-color" id="style-badge-prompt" value="#6b7280">
+                  <input type="color" class="setting-color" id="style-badge-prompt" value="#71717a">
                   <input type="text" class="setting-input setting-input--color" id="style-badge-prompt-text"
-                    value="#6b7280">
+                    value="#71717a">
                 </div>
               </div>
             </div>
@@ -209,12 +237,19 @@
               <div class="setting-group">
                 <label class="setting-label">보조모델 뱃지 색</label>
                 <div class="color-input-wrap">
-                  <input type="color" class="setting-color" id="style-badge-sub" value="#4285f4">
+                  <input type="color" class="setting-color" id="style-badge-sub" value="#a1a1aa">
                   <input type="text" class="setting-input setting-input--color" id="style-badge-sub-text"
-                    value="#4285f4">
+                    value="#a1a1aa">
                 </div>
               </div>
-              <div class="setting-group"></div>
+              <div class="setting-group">
+                <label class="setting-label">테두리 색상</label>
+                <div class="color-input-wrap">
+                  <input type="color" class="setting-color" id="style-border-color" value="#e4e4e7">
+                  <input type="text" class="setting-input setting-input--color" id="style-border-color-text"
+                    value="#e4e4e7">
+                </div>
+              </div>
             </div>
           </div>
 
@@ -222,21 +257,20 @@
           <div class="settings-content" id="tab-style">
             <div class="setting-row">
               <div class="setting-group">
-                <label class="setting-label">폰트</label>
-                <select class="setting-select" id="style-font">
-                  <option value="Pretendard">Pretendard</option>
-                  <option value="Noto Sans KR">Noto Sans KR</option>
-                  <option value="IBM Plex Sans KR">IBM Plex Sans KR</option>
-                  <option value="Nanum Gothic">나눔고딕</option>
-                  <option value="Nanum Myeongjo">나눔명조</option>
-                </select>
-              </div>
-              <div class="setting-group">
                 <label class="setting-label">폰트 크기</label>
                 <div class="range-input-wrap">
                   <input type="range" class="setting-range" id="style-font-size" min="12" max="24" value="16">
                   <span class="range-value" id="style-font-size-value">16px</span>
                 </div>
+              </div>
+              <div class="setting-group">
+                <label class="setting-label">텍스트 정렬</label>
+                <select class="setting-select" id="style-text-align">
+                  <option value="left">왼쪽 정렬</option>
+                  <option value="center">가운데 정렬</option>
+                  <option value="right">오른쪽 정렬</option>
+                  <option value="justify" selected>양쪽 정렬</option>
+                </select>
               </div>
             </div>
             <div class="setting-row">
@@ -248,15 +282,6 @@
                 </div>
               </div>
               <div class="setting-group">
-                <label class="setting-label">모서리 둥글기</label>
-                <div class="range-input-wrap">
-                  <input type="range" class="setting-range" id="style-radius" min="0" max="24" value="8">
-                  <span class="range-value" id="style-radius-value">8px</span>
-                </div>
-              </div>
-            </div>
-            <div class="setting-row">
-              <div class="setting-group">
                 <label class="setting-label">줄 간격</label>
                 <div class="range-input-wrap">
                   <input type="range" class="setting-range" id="style-line-height" min="1.2" max="2.4" step="0.1"
@@ -264,12 +289,44 @@
                   <span class="range-value" id="style-line-height-value">1.8</span>
                 </div>
               </div>
+            </div>
+            <div class="setting-row">
               <div class="setting-group">
                 <label class="setting-label">자간</label>
                 <div class="range-input-wrap">
                   <input type="range" class="setting-range" id="style-letter-spacing" min="-0.05" max="0.15" step="0.01"
                     value="0">
                   <span class="range-value" id="style-letter-spacing-value">0em</span>
+                </div>
+              </div>
+              <div class="setting-group">
+                <label class="setting-label">테두리 두께</label>
+                <div class="range-input-wrap">
+                  <input type="range" class="setting-range" id="style-border-width" min="0" max="4" step="1" value="0">
+                  <span class="range-value" id="style-border-width-value">0px</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- 그림자 옵션 -->
+            <div class="setting-divider"></div>
+            <div class="setting-row">
+              <div class="setting-group">
+                <label class="setting-label">박스 그림자</label>
+                <div class="toggle-switch-wrap">
+                  <label class="toggle-switch">
+                    <input type="checkbox" id="style-box-shadow" checked>
+                    <span class="toggle-slider"></span>
+                  </label>
+                  <span class="toggle-label" id="style-box-shadow-label">켜짐</span>
+                </div>
+              </div>
+              <div class="setting-group">
+                <label class="setting-label">그림자 강도</label>
+                <div class="range-input-wrap">
+                  <input type="range" class="setting-range" id="style-shadow-intensity" min="0" max="100" step="10"
+                    value="30">
+                  <span class="range-value" id="style-shadow-intensity-value">30%</span>
                 </div>
               </div>
             </div>
