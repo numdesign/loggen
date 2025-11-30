@@ -309,6 +309,7 @@ const settings = {
     // 캐릭터 정보
     charName: "",
     charLink: "",
+    userName: "",
     aiModel: "",
     promptName: "",
     subModel: "",
@@ -321,6 +322,9 @@ const settings = {
     italicColor: "#6366f1",
     dialogueColor: "#059669",
     dialogueBgColor: "#ecfdf5",
+    // 말풍선 색상
+    aiBubbleColor: "#f4f4f5",
+    userBubbleColor: "#dbeafe",
     fontFamily: "Pretendard",
     fontSize: 16,
     containerWidth: 800,
@@ -338,6 +342,8 @@ const settings = {
     badgeModelColor: "#18181b",
     badgePromptColor: "#71717a",
     badgeSubColor: "#a1a1aa",
+    // 커스텀 옵션
+    showNametag: true,
 };
 
 // 테마 프리셋 정의
@@ -347,50 +353,58 @@ const themePresets = {
         bgColor: "#fafafa", textColor: "#18181b", charColor: "#18181b",
         boldColor: "#dc2626", italicColor: "#6366f1", dialogueColor: "#059669", dialogueBgColor: "#ecfdf5",
         badgeModelColor: "#18181b", badgePromptColor: "#71717a", badgeSubColor: "#a1a1aa",
-        borderColor: "#e4e4e7"
+        borderColor: "#e4e4e7",
+        aiBubbleColor: "#f4f4f5", userBubbleColor: "#dbeafe"
     },
     "light-rose": {
         bgColor: "#fff1f2", textColor: "#1f1f1f", charColor: "#e11d48",
         boldColor: "#be123c", italicColor: "#f43f5e", dialogueColor: "#9f1239", dialogueBgColor: "#ffe4e6",
         badgeModelColor: "#e11d48", badgePromptColor: "#fb7185", badgeSubColor: "#fda4af",
-        borderColor: "#fecdd3"
+        borderColor: "#fecdd3",
+        aiBubbleColor: "#ffe4e6", userBubbleColor: "#fecdd3"
     },
     "light-sage": {
         bgColor: "#f0fdf4", textColor: "#14532d", charColor: "#166534",
         boldColor: "#15803d", italicColor: "#22c55e", dialogueColor: "#166534", dialogueBgColor: "#dcfce7",
         badgeModelColor: "#166534", badgePromptColor: "#4ade80", badgeSubColor: "#86efac",
-        borderColor: "#bbf7d0"
+        borderColor: "#bbf7d0",
+        aiBubbleColor: "#dcfce7", userBubbleColor: "#bbf7d0"
     },
     "light-lavender": {
         bgColor: "#faf5ff", textColor: "#2e1065", charColor: "#7c3aed",
         boldColor: "#6d28d9", italicColor: "#a78bfa", dialogueColor: "#5b21b6", dialogueBgColor: "#ede9fe",
         badgeModelColor: "#7c3aed", badgePromptColor: "#a78bfa", badgeSubColor: "#c4b5fd",
-        borderColor: "#ddd6fe"
+        borderColor: "#ddd6fe",
+        aiBubbleColor: "#ede9fe", userBubbleColor: "#ddd6fe"
     },
     "light-ocean": {
         bgColor: "#f0f9ff", textColor: "#0c4a6e", charColor: "#0369a1",
         boldColor: "#0284c7", italicColor: "#38bdf8", dialogueColor: "#075985", dialogueBgColor: "#e0f2fe",
         badgeModelColor: "#0369a1", badgePromptColor: "#38bdf8", badgeSubColor: "#7dd3fc",
-        borderColor: "#bae6fd"
+        borderColor: "#bae6fd",
+        aiBubbleColor: "#e0f2fe", userBubbleColor: "#bae6fd"
     },
     // 어두운 테마 3개
     "dark-midnight": {
         bgColor: "#0f0f23", textColor: "#e2e8f0", charColor: "#818cf8",
         boldColor: "#fbbf24", italicColor: "#a5b4fc", dialogueColor: "#67e8f9", dialogueBgColor: "#1e1b4b",
         badgeModelColor: "#6366f1", badgePromptColor: "#818cf8", badgeSubColor: "#a5b4fc",
-        borderColor: "#312e81"
+        borderColor: "#312e81",
+        aiBubbleColor: "#1e1b4b", userBubbleColor: "#312e81"
     },
     "dark-ember": {
         bgColor: "#18181b", textColor: "#fafafa", charColor: "#f97316",
         boldColor: "#fbbf24", italicColor: "#fdba74", dialogueColor: "#fb923c", dialogueBgColor: "#431407",
         badgeModelColor: "#ea580c", badgePromptColor: "#f97316", badgeSubColor: "#fdba74",
-        borderColor: "#3f3f46"
+        borderColor: "#3f3f46",
+        aiBubbleColor: "#27272a", userBubbleColor: "#431407"
     },
     "dark-noir": {
         bgColor: "#09090b", textColor: "#f4f4f5", charColor: "#22d3ee",
         boldColor: "#f472b6", italicColor: "#67e8f9", dialogueColor: "#2dd4bf", dialogueBgColor: "#134e4a",
         badgeModelColor: "#06b6d4", badgePromptColor: "#22d3ee", badgeSubColor: "#67e8f9",
-        borderColor: "#27272a"
+        borderColor: "#27272a",
+        aiBubbleColor: "#18181b", userBubbleColor: "#134e4a"
     }
 };
 
@@ -477,6 +491,123 @@ function getParagraphStyle() {
     return `margin: 0 0 1.2em 0; text-align: ${settings.textAlign}; word-break: keep-all;`;
 }
 
+// 라인 파싱 (마커 감지)
+function parseLine(line) {
+    const trimmed = line.trim();
+
+    // < 마커: User 대사 (왼쪽 방향 화살표 = 오른쪽 정렬)
+    if (trimmed.startsWith('<')) {
+        return {
+            type: 'user',
+            content: trimmed.substring(1).trim()
+        };
+    }
+
+    // > 마커: AI 대사 (오른쪽 방향 화살표 = 왼쪽 정렬)
+    if (trimmed.startsWith('>')) {
+        return {
+            type: 'ai',
+            content: trimmed.substring(1).trim()
+        };
+    }
+
+    // 마커 없음: 일반 나레이션
+    return {
+        type: 'narration',
+        content: trimmed
+    };
+}
+
+// 배경색에 어울리는 텍스트 색상 계산
+function getContrastTextColor(bgColor) {
+    const hex = bgColor.replace('#', '');
+    const r = parseInt(hex.substr(0, 2), 16);
+    const g = parseInt(hex.substr(2, 2), 16);
+    const b = parseInt(hex.substr(4, 2), 16);
+    // 밝기 계산 (YIQ 공식)
+    const brightness = (r * 299 + g * 587 + b * 114) / 1000;
+    return brightness > 128 ? '#1a1a1a' : '#f5f5f5';
+}
+
+// 말풍선용 마크다운 파싱 (대사 스타일 제외)
+function parseMarkdownForBubble(text) {
+    // HTML 이스케이프
+    let result = text
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+
+    const placeholders = [];
+    let placeholderIndex = 0;
+
+    // 볼드 (**text**)
+    result = result.replace(/\*\*(.+?)\*\*/g, (match, content) => {
+        const placeholder = `__BOLD_${placeholderIndex++}__`;
+        placeholders.push({
+            placeholder,
+            html: `<strong style="font-weight: bold;">${content}</strong>`
+        });
+        return placeholder;
+    });
+
+    // 이탤릭 (*text*)
+    result = result.replace(/\*([^*]+?)\*/g, (match, content) => {
+        const placeholder = `__ITALIC_${placeholderIndex++}__`;
+        placeholders.push({
+            placeholder,
+            html: `<em style="font-style: italic;">${content}</em>`
+        });
+        return placeholder;
+    });
+
+    // 대사는 스타일 없이 그냥 따옴표만 유지
+    // (말풍선에서는 대사 하이라이트 안 함)
+
+    // 플레이스홀더 복원
+    placeholders.forEach(p => {
+        result = result.replace(p.placeholder, p.html);
+    });
+
+    return result;
+}
+
+// 말풍선 HTML 생성
+function generateBubbleHTML(parsed, isForCode = false) {
+    const indent = isForCode ? '    ' : '';
+
+    if (parsed.type === 'ai') {
+        const textColor = getContrastTextColor(settings.aiBubbleColor);
+        const content = parseMarkdownForBubble(parsed.content);
+        const bubbleStyle = `display: block; margin: 0 0 1em 0; padding: 1em 1.25em; background: ${settings.aiBubbleColor}; color: ${textColor}; border-radius: 1em 1em 1em 0.25em; max-width: 85%; text-align: left; word-break: keep-all;`;
+        const nametagStyle = `display: block; margin-bottom: 0.375em; font-size: 0.75em; font-weight: 600; opacity: 0.7;`;
+        const charName = settings.charName || 'AI';
+
+        if (settings.showNametag) {
+            return `${indent}<div style="${bubbleStyle}"><span style="${nametagStyle}">${escapeHTMLContent(charName)}</span>${content}</div>`;
+        } else {
+            return `${indent}<div style="${bubbleStyle}">${content}</div>`;
+        }
+    } else if (parsed.type === 'user') {
+        const textColor = getContrastTextColor(settings.userBubbleColor);
+        const content = parseMarkdownForBubble(parsed.content);
+        const wrapperStyle = `display: flex; justify-content: flex-end; margin: 0 0 1em 0;`;
+        const bubbleStyle = `display: block; padding: 1em 1.25em; background: ${settings.userBubbleColor}; color: ${textColor}; border-radius: 1em 1em 0.25em 1em; max-width: 85%; text-align: left; word-break: keep-all;`;
+        const nametagStyle = `display: block; margin-bottom: 0.375em; font-size: 0.75em; font-weight: 600; opacity: 0.7; text-align: right;`;
+        const userName = settings.userName || 'User';
+
+        if (settings.showNametag) {
+            return `${indent}<div style="${wrapperStyle}"><div style="${bubbleStyle}"><span style="${nametagStyle}">${escapeHTMLContent(userName)}</span>${content}</div></div>`;
+        } else {
+            return `${indent}<div style="${wrapperStyle}"><div style="${bubbleStyle}">${content}</div></div>`;
+        }
+    } else {
+        // 나레이션 - 기존 parseMarkdown 사용 (대사 스타일 적용)
+        const content = parseMarkdown(parsed.content);
+        const pStyle = getParagraphStyle();
+        return `${indent}<p style="${pStyle}">${content}</p>`;
+    }
+}
+
 // ===== HTML 생성 (인라인 스타일 div) =====
 function generateHTML() {
     // 모든 블록의 내용 수집
@@ -532,9 +663,8 @@ function generateHTML() {
     const blocksHTML = blocksWithContent.map((block, index) => {
         const lines = block.content.split(/\r?\n/).filter((line) => line.trim() !== "");
         const linesHTML = lines.map((line) => {
-            const pStyle = getParagraphStyle();
-            const content = parseMarkdown(line);
-            return `    <p style="${pStyle}">${content}</p>`;
+            const parsed = parseLine(line);
+            return generateBubbleHTML(parsed, true);
         }).join("\n");
 
         // 접기/펼치기 사용 여부
@@ -688,9 +818,8 @@ function updatePreview() {
         const blocksHTML = blocksWithContent.map((block, index) => {
             const lines = block.content.split(/\r?\n/).filter((line) => line.trim() !== "");
             const linesHTML = lines.map((line) => {
-                const pStyle = getParagraphStyle();
-                const content = parseMarkdown(line);
-                return `<p style="${pStyle}">${content}</p>`;
+                const parsed = parseLine(line);
+                return generateBubbleHTML(parsed, false);
             }).join("");
 
             // 접기/펼치기 사용 여부
@@ -748,7 +877,8 @@ tabBtns.forEach((btn) => {
         tabContents.forEach((c) => c.classList.remove("active"));
 
         btn.classList.add("active");
-        document.querySelector(`#tab-${tabId}`).classList.add("active");
+        const tabContent = document.querySelector(`#tab-${tabId}`);
+        if (tabContent) tabContent.classList.add("active");
     });
 });
 
@@ -757,6 +887,7 @@ tabBtns.forEach((btn) => {
 const charInputs = {
     "char-name": "charName",
     "char-link": "charLink",
+    "user-name": "userName",
     "ai-model": "aiModel",
     "prompt-name": "promptName",
     "sub-model": "subModel",
@@ -844,6 +975,8 @@ function syncUIFromSettings() {
         "style-italic": "italicColor",
         "style-dialogue": "dialogueColor",
         "style-dialogue-bg": "dialogueBgColor",
+        "style-ai-bubble": "aiBubbleColor",
+        "style-user-bubble": "userBubbleColor",
         "style-badge-model": "badgeModelColor",
         "style-badge-prompt": "badgePromptColor",
         "style-badge-sub": "badgeSubColor",
@@ -867,6 +1000,8 @@ const colorInputs = [
     { colorId: "style-italic", textId: "style-italic-text", key: "italicColor" },
     { colorId: "style-dialogue", textId: "style-dialogue-text", key: "dialogueColor" },
     { colorId: "style-dialogue-bg", textId: "style-dialogue-bg-text", key: "dialogueBgColor" },
+    { colorId: "style-ai-bubble", textId: "style-ai-bubble-text", key: "aiBubbleColor" },
+    { colorId: "style-user-bubble", textId: "style-user-bubble-text", key: "userBubbleColor" },
     { colorId: "style-badge-model", textId: "style-badge-model-text", key: "badgeModelColor" },
     { colorId: "style-badge-prompt", textId: "style-badge-prompt-text", key: "badgePromptColor" },
     { colorId: "style-badge-sub", textId: "style-badge-sub-text", key: "badgeSubColor" },
@@ -946,6 +1081,19 @@ if (textAlignSelect) {
     });
 }
 
+// ===== 네임태그 토글 =====
+const showNametagToggle = document.getElementById("show-nametag");
+const showNametagLabel = document.getElementById("show-nametag-label");
+
+if (showNametagToggle && showNametagLabel) {
+    showNametagToggle.addEventListener("change", (e) => {
+        settings.showNametag = e.target.checked;
+        showNametagLabel.textContent = e.target.checked ? "켜짐" : "꺼짐";
+        updatePreview();
+        saveToStorage();
+    });
+}
+
 // ===== 복사 버튼 =====
 if (copyBtn) {
     copyBtn.addEventListener("click", async () => {
@@ -996,6 +1144,7 @@ function syncAllUIFromSettings() {
     const charInputMap = {
         "char-name": "charName",
         "char-link": "charLink",
+        "user-name": "userName",
         "ai-model": "aiModel",
         "prompt-name": "promptName",
         "sub-model": "subModel",
@@ -1031,6 +1180,12 @@ function syncAllUIFromSettings() {
     // 텍스트 정렬 동기화
     const textAlignEl = document.getElementById("style-text-align");
     if (textAlignEl) textAlignEl.value = settings.textAlign;
+
+    // 네임태그 토글 동기화
+    const showNametagEl = document.getElementById("show-nametag");
+    const showNametagLabelEl = document.getElementById("show-nametag-label");
+    if (showNametagEl) showNametagEl.checked = settings.showNametag;
+    if (showNametagLabelEl) showNametagLabelEl.textContent = settings.showNametag ? "켜짐" : "꺼짐";
 }
 
 console.log("main.js loaded successfully");
@@ -1151,12 +1306,12 @@ if (themeToggleBtn) {
 
 // ===== 키보드 단축키 =====
 document.addEventListener('keydown', (e) => {
-    // 입력 필드에서는 단축키 무시 (? 제외)
+    // 입력 필드에서는 단축키 무시
     const isInputFocused = document.activeElement.tagName === 'INPUT' ||
         document.activeElement.tagName === 'TEXTAREA';
 
-    // ? 키: 도움말 모달 토글
-    if (e.key === '?' || (e.shiftKey && e.key === '/')) {
+    // F1 키: 도움말 모달 토글
+    if (e.key === 'F1') {
         e.preventDefault();
         toggleHelpModal();
         return;
@@ -1229,7 +1384,7 @@ function createHelpModal() {
                 <div class="shortcut-group">
                     <h3>일반</h3>
                     <div class="shortcut-item">
-                        <span class="shortcut-key">?</span>
+                        <span class="shortcut-key">F1</span>
                         <span class="shortcut-desc">도움말 열기/닫기</span>
                     </div>
                     <div class="shortcut-item">

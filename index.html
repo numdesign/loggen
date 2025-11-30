@@ -26,7 +26,7 @@
     </button>
 
     <!-- 도움말 버튼 (우상단) -->
-    <button id="help-btn" class="help-btn" type="button" aria-label="도움말" title="키보드 단축키 (?)">?</button>
+    <button id="help-btn" class="help-btn" type="button" aria-label="도움말" title="키보드 단축키 (F1)">?</button>
 
     <!-- 히어로 섹션: 제목 -->
     <header class="hero">
@@ -36,23 +36,43 @@
 
     <!-- 메인 영역 -->
     <main class="app-layout">
-      <!-- 왼쪽: 설정 + 입력 -->
+      <!-- 왼쪽: 통합 설정 패널 -->
       <div class="column column--left">
         <!-- 설정 패널 -->
-        <section class="pane pane--settings">
+        <section class="pane pane--settings pane--unified">
           <!-- 탭 네비게이션 -->
           <div class="settings-tabs">
-            <button class="settings-tab active" data-tab="character">캐릭터</button>
+            <button class="settings-tab active" data-tab="logs">로그</button>
+            <button class="settings-tab" data-tab="character">캐릭터</button>
             <button class="settings-tab" data-tab="design">디자인</button>
             <button class="settings-tab" data-tab="style">스타일</button>
             <button class="settings-tab" data-tab="custom">커스텀</button>
           </div>
 
+          <!-- 로그 탭 -->
+          <div class="settings-content active" id="tab-logs">
+            <div class="log-tab-header">
+              <span class="log-tab-label">로그 블록</span>
+              <button id="add-block-btn" class="add-block-btn" type="button" title="블록 추가">
+                <span>+</span> 블록 추가
+              </button>
+            </div>
+            <div id="log-blocks" class="log-blocks">
+              <!-- 블록들이 여기에 동적으로 생성됨 -->
+            </div>
+          </div>
+
           <!-- 캐릭터 정보 탭 -->
-          <div class="settings-content active" id="tab-character">
-            <div class="setting-group">
-              <label class="setting-label">캐릭터 이름</label>
-              <input type="text" class="setting-input" id="char-name" placeholder="예: 아리아" autocomplete="off">
+          <div class="settings-content" id="tab-character">
+            <div class="setting-row">
+              <div class="setting-group">
+                <label class="setting-label">캐릭터 이름 (AI)</label>
+                <input type="text" class="setting-input" id="char-name" placeholder="예: 아리아" autocomplete="off">
+              </div>
+              <div class="setting-group">
+                <label class="setting-label">유저 이름</label>
+                <input type="text" class="setting-input" id="user-name" placeholder="예: 나" autocomplete="off">
+              </div>
             </div>
             <div class="setting-group">
               <label class="setting-label">캐릭터 링크 (선택)</label>
@@ -214,6 +234,25 @@
                 </div>
               </div>
             </div>
+            <!-- AI/User 말풍선 색상 -->
+            <div class="setting-row">
+              <div class="setting-group">
+                <label class="setting-label">AI 말풍선 색</label>
+                <div class="color-input-wrap">
+                  <input type="color" class="setting-color" id="style-ai-bubble" value="#f4f4f5">
+                  <input type="text" class="setting-input setting-input--color" id="style-ai-bubble-text"
+                    value="#f4f4f5">
+                </div>
+              </div>
+              <div class="setting-group">
+                <label class="setting-label">User 말풍선 색</label>
+                <div class="color-input-wrap">
+                  <input type="color" class="setting-color" id="style-user-bubble" value="#dbeafe">
+                  <input type="text" class="setting-input setting-input--color" id="style-user-bubble-text"
+                    value="#dbeafe">
+                </div>
+              </div>
+            </div>
             <!-- 뱃지 하이라이트 색상 -->
             <div class="setting-row">
               <div class="setting-group">
@@ -340,18 +379,38 @@
               </div>
             </div>
           </div>
-        </section>
 
-        <!-- 입력 블록들 -->
-        <section class="pane pane--input">
-          <div class="pane-header">
-            <span class="pane-label">로그 블록</span>
-            <button id="add-block-btn" class="add-block-btn" type="button" title="블록 추가">
-              <span>+</span> 블록 추가
-            </button>
-          </div>
-          <div id="log-blocks" class="log-blocks">
-            <!-- 블록들이 여기에 동적으로 생성됨 -->
+          <!-- 커스텀 탭 -->
+          <div class="settings-content" id="tab-custom">
+            <div class="setting-group">
+              <label class="setting-label">네임태그 표시</label>
+              <div class="toggle-switch-wrap">
+                <label class="toggle-switch">
+                  <input type="checkbox" id="show-nametag" checked>
+                  <span class="toggle-slider"></span>
+                </label>
+                <span class="toggle-label" id="show-nametag-label">켜짐</span>
+              </div>
+              <p class="setting-hint">AI/User 말풍선 위에 이름을 표시합니다</p>
+            </div>
+            <div class="setting-divider"></div>
+            <div class="setting-group">
+              <label class="setting-label">마커 사용법</label>
+              <div class="marker-help">
+                <div class="marker-item">
+                  <code>&gt;</code>
+                  <span>AI 대사 (왼쪽 말풍선)</span>
+                </div>
+                <div class="marker-item">
+                  <code>&lt;</code>
+                  <span>User 대사 (오른쪽 말풍선)</span>
+                </div>
+                <div class="marker-item">
+                  <code>(없음)</code>
+                  <span>일반 텍스트 (나레이션)</span>
+                </div>
+              </div>
+            </div>
           </div>
         </section>
       </div>
