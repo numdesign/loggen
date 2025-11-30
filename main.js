@@ -1793,3 +1793,117 @@ if (previewModeSwitch && previewCanvas) {
     });
 }
 
+// ===== JSON 가져오기 (RisuAI 형식) =====
+const importJsonBtn = document.getElementById('import-json-btn');
+const jsonFileInput = document.getElementById('json-file-input');
+
+function importRisuChatJSON(jsonData) {
+    try {
+        // RisuAI 형식 확인
+        if (jsonData.type !== 'risuChat' || !jsonData.data || !jsonData.data.message) {
+            throw new Error('지원하지 않는 JSON 형식입니다. RisuAI 채팅 내보내기 파일을 사용해주세요.');
+        }
+
+        const messages = jsonData.data.message;
+        const chatName = jsonData.data.name || 'Imported Chat';
+
+        // 각 메시지마다 별도 블록 생성
+        messages.forEach((msg, index) => {
+            const role = msg.role === 'user' ? 'User' : 'Char';
+            const blockTitle = `${chatName} - ${role} ${index + 1}`;
+            const content = msg.data.trim();
+
+            createLogBlock(blockTitle, content, false, true); // skipSave = true
+        });
+
+        // 마지막에 한 번만 저장
+        saveToStorage();
+
+        showToast(`"${chatName}" 채팅을 가져왔습니다 (${messages.length}개 블록 생성)`);
+        return true;
+    } catch (e) {
+        console.error('JSON 파싱 오류:', e);
+        showToast('JSON 파일을 불러오는데 실패했습니다: ' + e.message);
+        return false;
+    }
+}
+
+if (importJsonBtn && jsonFileInput) {
+    // 버튼 클릭 시 파일 선택 다이얼로그 열기
+    importJsonBtn.addEventListener('click', () => {
+        jsonFileInput.click();
+    });
+
+    // 파일 선택 시 처리
+    jsonFileInput.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            try {
+                const jsonData = JSON.parse(event.target.result);
+                importRisuChatJSON(jsonData);
+            } catch (err) {
+                showToast('올바른 JSON 파일이 아닙니다.');
+            }
+        };
+        reader.onerror = () => {
+            showToast('파일을 읽는데 실패했습니다.');
+        };
+        reader.readAsText(file);
+
+        // 같은 파일을 다시 선택할 수 있도록 초기화
+        jsonFileInput.value = '';
+    });
+}
+
+// ===== 대괄호 텍스트 제거 =====
+const removeBracketsBtn = document.getElementById('remove-brackets-btn');
+
+function removeBracketedText(text) {
+    // [대괄호] 안의 텍스트를 모두 제거 (대괄호 포함)
+    // 중첩되지 않은 대괄호만 처리
+    return text
+        .replace(/\[[^\[\]]*\]/g, '')  // [텍스트] 제거
+        .replace(/[ \t]{2,}/g, ' ')     // 연속 공백(스페이스/탭)만 하나로 (줄바꿈 유지)
+        .replace(/\n{3,}/g, '\n\n');    // 3개 이상 연속 줄바꿈을 2개로
+}
+
+function removeAllBracketedText() {
+    if (logBlocks.length === 0) {
+        showToast('제거할 블록이 없습니다.');
+        return;
+    }
+
+    let totalRemoved = 0;
+
+    logBlocks.forEach(block => {
+        const original = block.content;
+        const cleaned = removeBracketedText(original);
+
+        // 변경된 내용이 있으면 카운트
+        const removedCount = (original.match(/\[[^\[\]]*\]/g) || []).length;
+        totalRemoved += removedCount;
+
+        block.content = cleaned;
+    });
+
+    if (totalRemoved > 0) {
+        renderLogBlocks();
+        updatePreview();
+        saveToStorage();
+        showToast(`${totalRemoved}개의 [대괄호] 텍스트를 제거했습니다.`);
+    } else {
+        showToast('제거할 [대괄호] 텍스트가 없습니다.');
+    }
+}
+
+if (removeBracketsBtn) {
+    removeBracketsBtn.addEventListener('click', () => {
+        if (confirm('모든 블록에서 [대괄호] 안의 텍스트를 제거합니다.\n계속하시겠습니까?')) {
+            removeAllBracketedText();
+        }
+    });
+}
+

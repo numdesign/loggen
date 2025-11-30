@@ -53,10 +53,20 @@
           <div class="settings-content active" id="tab-logs">
             <div class="log-tab-header">
               <span class="log-tab-label">로그 블록</span>
-              <button id="add-block-btn" class="add-block-btn" type="button" title="블록 추가">
-                <span>+</span> 블록 추가
-              </button>
+              <div class="log-tab-actions">
+                <button id="import-json-btn" class="log-action-btn" type="button" title="RisuAI JSON 가져오기">
+                  📥 JSON
+                </button>
+                <button id="remove-brackets-btn" class="log-action-btn" type="button" title="모든 블록에서 [대괄호] 텍스트 제거">
+                  🧹 [ ] 제거
+                </button>
+                <button id="add-block-btn" class="add-block-btn" type="button" title="블록 추가">
+                  <span>+</span> 블록 추가
+                </button>
+              </div>
             </div>
+            <!-- 숨겨진 파일 input -->
+            <input type="file" id="json-file-input" accept=".json" style="display: none;">
             <div id="log-blocks" class="log-blocks">
               <!-- 블록들이 여기에 동적으로 생성됨 -->
             </div>
