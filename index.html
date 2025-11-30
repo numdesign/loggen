@@ -3,7 +3,7 @@
 
 <head>
   <meta charset="UTF-8" />
-  <title>챗챈 로그 제조기 V2</title>
+  <title>Log Studio</title>
 
   <!-- Pretendard 웹폰트 -->
   <link rel="stylesheet" as="style" crossorigin
@@ -30,8 +30,8 @@
 
     <!-- 히어로 섹션: 제목 -->
     <header class="hero">
-      <h1 class="hero-title">챗챈 로그 제조기 V2</h1>
-      <p class="hero-desc">텍스트 로그를 예쁜 HTML로 변환하세요</p>
+      <h1 class="hero-title">Log Studio</h1>
+      <p class="hero-desc">채팅 로그를 아름다운 HTML로 변환하세요.</p>
     </header>
 
     <!-- 메인 영역 -->
@@ -300,6 +300,15 @@
                 </div>
               </div>
               <div class="setting-group">
+                <label class="setting-label">모서리 둥글기</label>
+                <div class="range-input-wrap">
+                  <input type="range" class="setting-range" id="style-radius" min="0" max="24" step="2" value="8">
+                  <span class="range-value" id="style-radius-value">8px</span>
+                </div>
+              </div>
+            </div>
+            <div class="setting-row">
+              <div class="setting-group">
                 <label class="setting-label">테두리 두께</label>
                 <div class="range-input-wrap">
                   <input type="range" class="setting-range" id="style-border-width" min="0" max="4" step="1" value="0">
@@ -351,8 +360,17 @@
       <div class="column column--right">
         <!-- 미리보기 -->
         <section class="pane pane--preview">
-          <span class="pane-label">미리보기</span>
-          <div class="preview-canvas">
+          <div class="pane-header">
+            <span class="pane-label">미리보기</span>
+            <div class="preview-controls">
+              <div class="preview-mode-toggle">
+                <span class="mode-icon active" title="데스크톱">🖥️</span>
+                <div class="preview-mode-switch" id="preview-mode-switch" title="모바일/데스크톱 전환"></div>
+                <span class="mode-icon" title="모바일">📱</span>
+              </div>
+            </div>
+          </div>
+          <div class="preview-canvas" id="preview-canvas">
             <div id="log-preview" class="preview-content">
               <p class="placeholder-text">변환된 결과가 여기에 표시됩니다</p>
             </div>

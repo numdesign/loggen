@@ -1129,22 +1129,23 @@ renderUserPresets();
 const themeToggleBtn = document.querySelector("#theme-toggle");
 
 function setTheme(mode) {
-    if (mode === "light") {
-        document.body.classList.add("theme-light");
-        localStorage.setItem("theme", "light");
-    } else {
-        document.body.classList.remove("theme-light");
+    if (mode === "dark") {
+        document.body.classList.add("theme-dark");
         localStorage.setItem("theme", "dark");
+    } else {
+        document.body.classList.remove("theme-dark");
+        localStorage.setItem("theme", "light");
     }
 }
 
 if (themeToggleBtn) {
     const saved = localStorage.getItem("theme");
-    setTheme(saved === "light" ? "light" : "dark");
+    // 라이트 모드가 기본값
+    setTheme(saved === "dark" ? "dark" : "light");
 
     themeToggleBtn.addEventListener("click", () => {
-        const isLight = document.body.classList.contains("theme-light");
-        setTheme(isLight ? "dark" : "light");
+        const isDark = document.body.classList.contains("theme-dark");
+        setTheme(isDark ? "light" : "dark");
     });
 }
 
@@ -1285,5 +1286,21 @@ function closeHelpModal() {
 const helpBtn = document.getElementById('help-btn');
 if (helpBtn) {
     helpBtn.addEventListener('click', toggleHelpModal);
+}
+
+// ===== 모바일 미리보기 토글 =====
+const previewModeSwitch = document.getElementById('preview-mode-switch');
+const previewCanvas = document.getElementById('preview-canvas');
+
+if (previewModeSwitch && previewCanvas) {
+    previewModeSwitch.addEventListener('click', () => {
+        const isMobile = previewModeSwitch.classList.toggle('mobile');
+        previewCanvas.classList.toggle('mobile-preview', isMobile);
+
+        // 아이콘 활성화 상태 토글
+        const icons = previewModeSwitch.parentElement.querySelectorAll('.mode-icon');
+        icons[0].classList.toggle('active', !isMobile); // 데스크톱 아이콘
+        icons[1].classList.toggle('active', isMobile);  // 모바일 아이콘
+    });
 }
 
