@@ -129,7 +129,7 @@ async function tryLoadImageViaCanvas(imgSrc) {
     return new Promise((resolve) => {
         const img = new Image();
         img.crossOrigin = 'anonymous';
-        
+
         img.onload = () => {
             try {
                 const canvas = document.createElement('canvas');
@@ -145,12 +145,12 @@ async function tryLoadImageViaCanvas(imgSrc) {
                 resolve(null);
             }
         };
-        
+
         img.onerror = () => {
             console.warn('Canvas 이미지 로드 실패:', imgSrc);
             resolve(null);
         };
-        
+
         // 타임아웃 설정 (5초)
         setTimeout(() => {
             if (!img.complete) {
@@ -158,7 +158,7 @@ async function tryLoadImageViaCanvas(imgSrc) {
                 resolve(null);
             }
         }, 5000);
-        
+
         img.src = imgSrc;
     });
 }
