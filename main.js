@@ -340,6 +340,11 @@ function saveToStorage() {
         localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(settings));
         localStorage.setItem(STORAGE_KEYS.BLOCKS, JSON.stringify(logBlocks));
         localStorage.setItem(STORAGE_KEYS.BLOCK_COUNTER, blockIdCounter.toString());
+
+        // Undo/Redo 히스토리에 상태 저장 (디바운스)
+        if (!isUndoRedoAction) {
+            debouncedPushHistory();
+        }
     } catch (e) {
         console.warn("LocalStorage 저장 실패:", e);
     }
@@ -437,6 +442,186 @@ function escapeAttr(str) {
 let logBlocks = [];
 let blockIdCounter = 0;
 
+// ===== Undo/Redo 히스토리 시스템 =====
+const MAX_HISTORY_SIZE = 30;
+let historyStack = [];
+let redoStack = [];
+let isUndoRedoAction = false;
+let lastFocusedBlockId = null;
+let saveDebounceTimer = null;
+
+// 이미지 참조 저장소 (메모리 최적화)
+const imageStore = new Map();
+let imageIdCounter = 0;
+
+// 이미지를 참조로 변환 (메모리 절약)
+function extractImages(content) {
+    const imgRegex = /<img\s+src="(data:[^"]+)"[^>]*>/gi;
+    let match;
+    const refs = [];
+    let processedContent = content;
+
+    while ((match = imgRegex.exec(content)) !== null) {
+        const base64 = match[1];
+        // 이미 저장된 이미지인지 확인
+        let imageId = null;
+        for (const [id, data] of imageStore.entries()) {
+            if (data === base64) {
+                imageId = id;
+                break;
+            }
+        }
+
+        if (imageId === null) {
+            imageId = `img_${imageIdCounter++}`;
+            imageStore.set(imageId, base64);
+        }
+
+        refs.push(imageId);
+        processedContent = processedContent.replace(match[0], `<img src="__IMG_REF_${imageId}__">`);
+    }
+
+    return { content: processedContent, refs };
+}
+
+// 참조를 이미지로 복원
+function restoreImages(content) {
+    return content.replace(/<img\s+src="__IMG_REF_([^"]+)__">/gi, (match, imageId) => {
+        const base64 = imageStore.get(imageId);
+        if (base64) {
+            return `<img src="${base64}">`;
+        }
+        return match;
+    });
+}
+
+// 상태 스냅샷 생성 (이미지 참조화로 메모리 최적화)
+function captureState() {
+    const blocksSnapshot = logBlocks.map(block => {
+        const { content: optimizedContent } = extractImages(block.content);
+        return {
+            id: block.id,
+            title: block.title,
+            content: optimizedContent,
+            collapsible: block.collapsible,
+            collapsed: block.collapsed
+        };
+    });
+
+    return {
+        blocks: blocksSnapshot,
+        settings: JSON.parse(JSON.stringify(settings)),
+        blockIdCounter: blockIdCounter,
+        timestamp: Date.now()
+    };
+}
+
+// 상태 복원
+function restoreState(snapshot) {
+    // 블록 복원 (이미지 참조 복원)
+    logBlocks = snapshot.blocks.map(block => ({
+        ...block,
+        content: restoreImages(block.content)
+    }));
+
+    // 설정 복원
+    Object.assign(settings, snapshot.settings);
+
+    // 블록 카운터 복원
+    blockIdCounter = snapshot.blockIdCounter;
+}
+
+// 히스토리에 현재 상태 저장
+function pushHistory() {
+    if (isUndoRedoAction) return;
+
+    const snapshot = captureState();
+
+    // 이전 상태와 비교하여 변경이 있을 때만 저장
+    if (historyStack.length > 0) {
+        const lastSnapshot = historyStack[historyStack.length - 1];
+        if (JSON.stringify(lastSnapshot.blocks) === JSON.stringify(snapshot.blocks) &&
+            JSON.stringify(lastSnapshot.settings) === JSON.stringify(snapshot.settings)) {
+            return; // 변경 없음
+        }
+    }
+
+    historyStack.push(snapshot);
+
+    // 히스토리 크기 제한
+    if (historyStack.length > MAX_HISTORY_SIZE) {
+        historyStack.shift();
+    }
+
+    // Redo 스택 초기화 (새 작업 시)
+    redoStack = [];
+}
+
+// 디바운스된 히스토리 저장
+function debouncedPushHistory() {
+    if (saveDebounceTimer) {
+        clearTimeout(saveDebounceTimer);
+    }
+    saveDebounceTimer = setTimeout(() => {
+        pushHistory();
+    }, 500);
+}
+
+// Undo 실행
+function undo() {
+    if (historyStack.length <= 1) {
+        showToast('더 이상 되돌릴 수 없습니다');
+        return;
+    }
+
+    isUndoRedoAction = true;
+
+    // 현재 상태를 redo 스택에 저장
+    const currentState = historyStack.pop();
+    redoStack.push(currentState);
+
+    // 이전 상태 복원
+    const prevState = historyStack[historyStack.length - 1];
+    restoreState(prevState);
+
+    // UI 동기화
+    syncUIFromSettings();
+    syncAllUIFromSettings();
+    renderLogBlocks();
+    updatePreview();
+    saveToStorage();
+
+    isUndoRedoAction = false;
+    showToast('되돌리기 완료');
+}
+
+// Redo 실행
+function redo() {
+    if (redoStack.length === 0) {
+        showToast('다시 실행할 작업이 없습니다');
+        return;
+    }
+
+    isUndoRedoAction = true;
+
+    // redo 스택에서 상태 가져오기
+    const nextState = redoStack.pop();
+    historyStack.push(nextState);
+
+    // 상태 복원
+    restoreState(nextState);
+
+    // UI 동기화
+    syncUIFromSettings();
+    syncAllUIFromSettings();
+    renderLogBlocks();
+    updatePreview();
+    saveToStorage();
+
+    isUndoRedoAction = false;
+    showToast('다시 실행 완료');
+}
+
 function createLogBlock(title = "", content = "", collapsible = false, skipSave = false) {
     const id = blockIdCounter++;
     // 현재 블록 개수 기준으로 제목 생성
@@ -460,6 +645,28 @@ function removeLogBlock(id) {
     renderLogBlocks();
     updatePreview();
     saveToStorage();
+}
+
+function duplicateLogBlock(id) {
+    const block = logBlocks.find(b => b.id === id);
+    if (!block) return;
+
+    const blockIndex = logBlocks.findIndex(b => b.id === id);
+    const newId = blockIdCounter++;
+    const newBlock = {
+        id: newId,
+        title: block.title + " (복사본)",
+        content: block.content,
+        collapsible: block.collapsible,
+        collapsed: false
+    };
+
+    // 원본 바로 뒤에 삽입
+    logBlocks.splice(blockIndex + 1, 0, newBlock);
+    renderLogBlocks();
+    updatePreview();
+    saveToStorage();
+    showToast('블록이 복제되었습니다.');
 }
 
 function updateLogBlock(id, updates) {
@@ -564,6 +771,7 @@ function renderLogBlocks() {
                 </button>
                 <input type="text" class="log-block-title" value="${escapeAttr(block.title)}" placeholder="블록 제목">
                 <div class="log-block-actions">
+                    <button type="button" class="log-block-btn log-block-btn--duplicate" title="블록 복제">⧉</button>
                     <button type="button" class="log-block-btn log-block-btn--delete" title="삭제">✕</button>
                 </div>
             </div>
@@ -587,6 +795,11 @@ function renderLogBlocks() {
         // 콘텐츠 영역 (contenteditable)
         const contentEl = blockEl.querySelector('.log-block-textarea');
 
+        // 포커스 추적 (블록 키보드 이동용)
+        contentEl.addEventListener('focus', () => {
+            lastFocusedBlockId = blockId;
+        });
+
         // 입력 이벤트
         contentEl.addEventListener('input', (e) => {
             updateLogBlock(blockId, { content: getContentEditableContent(contentEl) });
@@ -603,10 +816,63 @@ function renderLogBlocks() {
             }
         });
 
+        // 이미지 드래그앤드롭 이벤트
+        contentEl.addEventListener('dragover', (e) => {
+            // 파일 드롭인지 확인 (블록 드래그와 구분)
+            if (e.dataTransfer.types.includes('Files')) {
+                e.preventDefault();
+                e.stopPropagation();
+                contentEl.classList.add('drag-over-image');
+            }
+        });
+
+        contentEl.addEventListener('dragleave', (e) => {
+            contentEl.classList.remove('drag-over-image');
+        });
+
+        contentEl.addEventListener('drop', async (e) => {
+            // 파일 드롭인지 확인
+            if (e.dataTransfer.types.includes('Files')) {
+                e.preventDefault();
+                e.stopPropagation();
+                contentEl.classList.remove('drag-over-image');
+
+                const files = e.dataTransfer.files;
+                for (const file of files) {
+                    if (file.type.startsWith('image/')) {
+                        try {
+                            const base64 = await blobToBase64(file);
+                            const compressed = await compressImage(base64);
+                            const imgHtml = `<img src="${compressed}" style="max-width: 100%; border-radius: 8px; margin: 0.5em 0;">`;
+
+                            // 커서 위치에 이미지 삽입
+                            contentEl.focus();
+                            document.execCommand('insertHTML', false, imgHtml);
+
+                            // 블록 내용 업데이트
+                            setTimeout(() => {
+                                updateLogBlock(blockId, { content: getContentEditableContent(contentEl) });
+                            }, 100);
+
+                            showToast('이미지가 추가되었습니다');
+                        } catch (err) {
+                            console.error('이미지 처리 실패:', err);
+                            showToast('이미지 추가에 실패했습니다');
+                        }
+                    }
+                }
+            }
+        });
+
         // 제목
         const titleInput = blockEl.querySelector('.log-block-title');
         titleInput.addEventListener('input', (e) => {
             updateLogBlock(blockId, { title: e.target.value });
+        });
+
+        // 제목 입력에서도 포커스 추적
+        titleInput.addEventListener('focus', () => {
+            lastFocusedBlockId = blockId;
         });
 
         // 접기/펼치기 버튼
@@ -617,6 +883,12 @@ function renderLogBlocks() {
                 block.collapsed = !block.collapsed;
                 renderLogBlocks();
             }
+        });
+
+        // 복제 버튼
+        const duplicateBtn = blockEl.querySelector('.log-block-btn--duplicate');
+        duplicateBtn.addEventListener('click', () => {
+            duplicateLogBlock(blockId);
         });
 
         // 삭제 버튼
@@ -656,6 +928,13 @@ const settings = {
     italicColor: "#6366f1",
     dialogueColor: "#059669",
     dialogueBgColor: "#ecfdf5",
+    // 인용구 색상
+    quoteColor: "#6b7280",
+    quoteBgColor: "#f3f4f6",
+    // 마크다운 제목 색상
+    headingColor: "#111827",
+    // 구분선 색상
+    dividerColor: "#d1d5db",
     // 말풍선 색상
     aiBubbleColor: "#f4f4f5",
     userBubbleColor: "#dbeafe",
@@ -719,6 +998,7 @@ const themePresets = {
     "light-pure": {
         bgColor: "#ffffff", textColor: "#171717", charColor: "#171717",
         boldColor: "#ef4444", italicColor: "#6366f1", dialogueColor: "#059669", dialogueBgColor: "#f0fdf4",
+        quoteColor: "#6b7280", quoteBgColor: "#f3f4f6", headingColor: "#171717", dividerColor: "#e5e5e5",
         badgeModelColor: "#171717", badgePromptColor: "#737373", badgeSubColor: "#a3a3a3",
         borderColor: "#e5e5e5",
         aiBubbleColor: "#f5f5f5", userBubbleColor: "#e0f2fe",
@@ -728,6 +1008,7 @@ const themePresets = {
     "light-peach": {
         bgColor: "#fff5f5", textColor: "#4c0519", charColor: "#be123c",
         boldColor: "#e11d48", italicColor: "#fb7185", dialogueColor: "#9f1239", dialogueBgColor: "#ffe4e6",
+        quoteColor: "#881337", quoteBgColor: "#fecdd3", headingColor: "#4c0519", dividerColor: "#fecdd3",
         badgeModelColor: "#be123c", badgePromptColor: "#fb7185", badgeSubColor: "#fda4af",
         borderColor: "#fecdd3",
         aiBubbleColor: "#ffe4e6", userBubbleColor: "#fecdd3",
@@ -737,6 +1018,7 @@ const themePresets = {
     "light-mint": {
         bgColor: "#f0fdfa", textColor: "#134e4a", charColor: "#0d9488",
         boldColor: "#0f766e", italicColor: "#2dd4bf", dialogueColor: "#115e59", dialogueBgColor: "#ccfbf1",
+        quoteColor: "#115e59", quoteBgColor: "#99f6e4", headingColor: "#134e4a", dividerColor: "#99f6e4",
         badgeModelColor: "#0d9488", badgePromptColor: "#5eead4", badgeSubColor: "#99f6e4",
         borderColor: "#99f6e4",
         aiBubbleColor: "#ccfbf1", userBubbleColor: "#99f6e4",
@@ -746,6 +1028,7 @@ const themePresets = {
     "light-sky": {
         bgColor: "#f0f9ff", textColor: "#0c4a6e", charColor: "#0284c7",
         boldColor: "#0369a1", italicColor: "#38bdf8", dialogueColor: "#075985", dialogueBgColor: "#e0f2fe",
+        quoteColor: "#0369a1", quoteBgColor: "#bae6fd", headingColor: "#0c4a6e", dividerColor: "#bae6fd",
         badgeModelColor: "#0284c7", badgePromptColor: "#38bdf8", badgeSubColor: "#7dd3fc",
         borderColor: "#bae6fd",
         aiBubbleColor: "#e0f2fe", userBubbleColor: "#bae6fd",
@@ -755,6 +1038,7 @@ const themePresets = {
     "light-lilac": {
         bgColor: "#faf5ff", textColor: "#4c1d95", charColor: "#7c3aed",
         boldColor: "#6d28d9", italicColor: "#a78bfa", dialogueColor: "#5b21b6", dialogueBgColor: "#ede9fe",
+        quoteColor: "#6d28d9", quoteBgColor: "#ddd6fe", headingColor: "#4c1d95", dividerColor: "#ddd6fe",
         badgeModelColor: "#7c3aed", badgePromptColor: "#a78bfa", badgeSubColor: "#c4b5fd",
         borderColor: "#ddd6fe",
         aiBubbleColor: "#ede9fe", userBubbleColor: "#ddd6fe",
@@ -765,6 +1049,7 @@ const themePresets = {
     "dark-space": {
         bgColor: "#0f172a", textColor: "#f8fafc", charColor: "#94a3b8",
         boldColor: "#38bdf8", italicColor: "#818cf8", dialogueColor: "#22d3ee", dialogueBgColor: "#1e293b",
+        quoteColor: "#94a3b8", quoteBgColor: "#334155", headingColor: "#f8fafc", dividerColor: "#334155",
         badgeModelColor: "#334155", badgePromptColor: "#475569", badgeSubColor: "#64748b",
         borderColor: "#1e293b",
         aiBubbleColor: "#1e293b", userBubbleColor: "#334155",
@@ -774,6 +1059,7 @@ const themePresets = {
     "dark-charcoal": {
         bgColor: "#18181b", textColor: "#fafafa", charColor: "#fbbf24",
         boldColor: "#f59e0b", italicColor: "#fbbf24", dialogueColor: "#fb923c", dialogueBgColor: "#27272a",
+        quoteColor: "#a1a1aa", quoteBgColor: "#3f3f46", headingColor: "#fafafa", dividerColor: "#3f3f46",
         badgeModelColor: "#d97706", badgePromptColor: "#f59e0b", badgeSubColor: "#fbbf24",
         borderColor: "#27272a",
         aiBubbleColor: "#27272a", userBubbleColor: "#3f3f46",
@@ -783,6 +1069,7 @@ const themePresets = {
     "dark-forest": {
         bgColor: "#052e16", textColor: "#f0fdf4", charColor: "#4ade80",
         boldColor: "#22c55e", italicColor: "#86efac", dialogueColor: "#4ade80", dialogueBgColor: "#14532d",
+        quoteColor: "#86efac", quoteBgColor: "#166534", headingColor: "#f0fdf4", dividerColor: "#166534",
         badgeModelColor: "#15803d", badgePromptColor: "#22c55e", badgeSubColor: "#4ade80",
         borderColor: "#14532d",
         aiBubbleColor: "#14532d", userBubbleColor: "#166534",
@@ -792,6 +1079,7 @@ const themePresets = {
     "dark-navy": {
         bgColor: "#172554", textColor: "#eff6ff", charColor: "#60a5fa",
         boldColor: "#3b82f6", italicColor: "#93c5fd", dialogueColor: "#60a5fa", dialogueBgColor: "#1e3a8a",
+        quoteColor: "#93c5fd", quoteBgColor: "#1e40af", headingColor: "#eff6ff", dividerColor: "#1e40af",
         badgeModelColor: "#2563eb", badgePromptColor: "#3b82f6", badgeSubColor: "#60a5fa",
         borderColor: "#1e3a8a",
         aiBubbleColor: "#1e3a8a", userBubbleColor: "#1e40af",
@@ -801,6 +1089,7 @@ const themePresets = {
     "dark-cyber": {
         bgColor: "#09090b", textColor: "#fdf4ff", charColor: "#d946ef",
         boldColor: "#e879f9", italicColor: "#f0abfc", dialogueColor: "#c026d3", dialogueBgColor: "#2a0a2e",
+        quoteColor: "#f0abfc", quoteBgColor: "#3b0764", headingColor: "#fdf4ff", dividerColor: "#581c87",
         badgeModelColor: "#a21caf", badgePromptColor: "#c026d3", badgeSubColor: "#e879f9",
         borderColor: "#27272a",
         aiBubbleColor: "#18181b", userBubbleColor: "#2a0a2e",
@@ -811,6 +1100,7 @@ const themePresets = {
     "special-sepia": {
         bgColor: "#f5f0e6", textColor: "#3d3020", charColor: "#6b5a3e",
         boldColor: "#8b6914", italicColor: "#a67c52", dialogueColor: "#5c4d3c", dialogueBgColor: "#ebe3d3",
+        quoteColor: "#8b7355", quoteBgColor: "#e0d5c1", headingColor: "#3d3020", dividerColor: "#d4c9b5",
         badgeModelColor: "#6b5a3e", badgePromptColor: "#8b7355", badgeSubColor: "#a69076",
         borderColor: "#d4c9b5",
         aiBubbleColor: "#ebe3d3", userBubbleColor: "#e0d5c1",
@@ -820,6 +1110,7 @@ const themePresets = {
     "special-noir": {
         bgColor: "#1a1a1a", textColor: "#c0c0c0", charColor: "#e0e0e0",
         boldColor: "#ffffff", italicColor: "#909090", dialogueColor: "#d0d0d0", dialogueBgColor: "#2a2a2a",
+        quoteColor: "#909090", quoteBgColor: "#333333", headingColor: "#e0e0e0", dividerColor: "#404040",
         badgeModelColor: "#505050", badgePromptColor: "#707070", badgeSubColor: "#808080",
         borderColor: "#333333",
         aiBubbleColor: "#252525", userBubbleColor: "#303030",
@@ -829,6 +1120,7 @@ const themePresets = {
     "special-neon": {
         bgColor: "#0a0a12", textColor: "#e0e0ff", charColor: "#00ffff",
         boldColor: "#ff00ff", italicColor: "#00ff88", dialogueColor: "#ffff00", dialogueBgColor: "#1a1a2e",
+        quoteColor: "#00ffff", quoteBgColor: "#1a1a2e", headingColor: "#ff00ff", dividerColor: "#2a2a4e",
         badgeModelColor: "#ff0080", badgePromptColor: "#00ffff", badgeSubColor: "#80ff00",
         borderColor: "#2a2a4e",
         aiBubbleColor: "#12121f", userBubbleColor: "#1a1a2e",
@@ -917,6 +1209,34 @@ function parseMarkdown(text) {
         return placeholder;
     });
 
+    // 인용구 ('text') - 영문 작은따옴표
+    result = result.replace(/'([^']+)'/g, (match, content) => {
+        const placeholder = `__QUOTE_${placeholderIndex++}__`;
+        let processedContent = content;
+        placeholders.forEach(p => {
+            processedContent = processedContent.replace(p.placeholder, p.html);
+        });
+        placeholders.push({
+            placeholder,
+            html: `<span style="color: ${settings.quoteColor}; background: ${settings.quoteBgColor}; padding: 0.1em 0.4em; border-radius: 4px; font-style: italic;">'${processedContent}'</span>`
+        });
+        return placeholder;
+    });
+
+    // 인용구 ('text') - 한글 작은따옴표
+    result = result.replace(/\u2018([^\u2019]+)\u2019/g, (match, content) => {
+        const placeholder = `__QUOTE_KR_${placeholderIndex++}__`;
+        let processedContent = content;
+        placeholders.forEach(p => {
+            processedContent = processedContent.replace(p.placeholder, p.html);
+        });
+        placeholders.push({
+            placeholder,
+            html: `<span style="color: ${settings.quoteColor}; background: ${settings.quoteBgColor}; padding: 0.1em 0.4em; border-radius: 4px; font-style: italic;">\u2018${processedContent}\u2019</span>`
+        });
+        return placeholder;
+    });
+
     // 플레이스홀더 복원
     placeholders.forEach(p => {
         result = result.replace(p.placeholder, p.html);
@@ -989,6 +1309,25 @@ function parseBlockContent(htmlContent) {
 // 라인 파싱 (마커 감지)
 function parseLine(line) {
     const trimmed = line.trim();
+
+    // 구분선 (---, ===, ***) - 3개 이상의 같은 문자
+    if (/^(-{3,}|={3,}|\*{3,})$/.test(trimmed)) {
+        return {
+            type: 'divider',
+            content: ''
+        };
+    }
+
+    // 마크다운 제목 (# ~ ###)
+    const headingMatch = trimmed.match(/^(#{1,3})\s+(.+)$/);
+    if (headingMatch) {
+        const level = headingMatch[1].length; // 1, 2, 3
+        return {
+            type: 'heading',
+            level: level,
+            content: headingMatch[2]
+        };
+    }
 
     // << 마커: User 대사 (왼쪽 방향 화살표 = 오른쪽 정렬)
     if (trimmed.startsWith('<<')) {
@@ -1169,6 +1508,40 @@ function generateBubbleHTML(parsed, isForCode = false) {
         }
     }
 
+    // 구분선
+    if (parsed.type === 'divider') {
+        const dividerStyle = `margin: 1.5em 0; border: none; border-top: 1px solid ${settings.dividerColor}; height: 0;`;
+        return `${indent}<hr style="${dividerStyle}">`;
+    }
+
+    // 마크다운 제목
+    if (parsed.type === 'heading') {
+        const content = parseMarkdown(parsed.content);
+        let fontSize, fontWeight, marginBottom;
+
+        switch (parsed.level) {
+            case 1:
+                fontSize = '1.5em';
+                fontWeight = '800';
+                marginBottom = '0.75em';
+                break;
+            case 2:
+                fontSize = '1.25em';
+                fontWeight = '700';
+                marginBottom = '0.6em';
+                break;
+            case 3:
+            default:
+                fontSize = '1.1em';
+                fontWeight = '600';
+                marginBottom = '0.5em';
+                break;
+        }
+
+        const headingStyle = `margin: 0 0 ${marginBottom} 0; font-size: ${fontSize}; font-weight: ${fontWeight}; color: ${settings.headingColor}; line-height: 1.4;`;
+        return `${indent}<p style="${headingStyle}">${content}</p>`;
+    }
+
     if (parsed.type === 'ai') {
         const textColor = getContrastTextColor(settings.aiBubbleColor);
         const content = parseMarkdownForBubble(parsed.content);
@@ -1252,9 +1625,9 @@ function generateHTML() {
             if (settings.charName) {
                 const charBadgeStyle = `display: inline-block; padding: 6px 14px; background: ${settings.charColor}; color: ${getContrastTextColor(settings.charColor)}; border-radius: ${settings.badgeRadius}px; font-size: 0.8em; font-weight: 700; letter-spacing: 0.02em;`;
                 if (settings.charLink) {
-                    charBadgeHTML = `    <div style="display: flex; justify-content: ${justifyContent}; margin-bottom: 0.75em;"><a href="${settings.charLink}" target="_blank" style="text-decoration: none;"><span style="${charBadgeStyle}">${settings.charName}</span></a></div>\n`;
+                    charBadgeHTML = `    <div style="text-align: ${headerTextAlign}; margin-bottom: 0.75em;"><a href="${settings.charLink}" target="_blank" style="text-decoration: none;"><span style="${charBadgeStyle}">${settings.charName}</span></a></div>\n`;
                 } else {
-                    charBadgeHTML = `    <div style="display: flex; justify-content: ${justifyContent}; margin-bottom: 0.75em;"><span style="${charBadgeStyle}">${settings.charName}</span></div>\n`;
+                    charBadgeHTML = `    <div style="text-align: ${headerTextAlign}; margin-bottom: 0.75em;"><span style="${charBadgeStyle}">${settings.charName}</span></div>\n`;
                 }
             }
             const logTitleStyle = `margin: 0; font-size: ${settings.logTitleSize}em; font-weight: 800; color: ${settings.textColor}; letter-spacing: -0.02em; text-align: ${headerTextAlign};`;
@@ -1290,7 +1663,8 @@ function generateHTML() {
             // 배지만 있을 때 아래 여백 제거
             const badgeMargin = (settings.logTitle || settings.charName) ? "margin: 0 8px 8px 0;" : "margin: 0 8px 0 0;";
             const tagsWithFixedMargin = tags.map(tag => tag.replace(/margin: 0 8px 8px 0;/g, badgeMargin));
-            tagsHTML = `    <div style="${marginTop} display: flex; flex-wrap: wrap; justify-content: ${justifyContent};">${tagsWithFixedMargin.join("")}</div>\n`;
+            // text-align 사용 (아카라이브가 flex 속성 삭제함)
+            tagsHTML = `    <div style="${marginTop} text-align: ${settings.headerAlign};">${tagsWithFixedMargin.join("")}</div>\n`;
         }
 
         headerHTML = `  <div style="${headerStyle}">\n${charBadgeHTML}${logTitleHTML}${tagsHTML}  </div>\n`;
@@ -1467,9 +1841,9 @@ function updatePreview() {
                 if (settings.charName) {
                     const charBadgeStyle = `display: inline-block; padding: 6px 14px; background: ${settings.charColor}; color: ${getContrastTextColor(settings.charColor)}; border-radius: ${settings.badgeRadius}px; font-size: 0.8em; font-weight: 700; letter-spacing: 0.02em;`;
                     if (settings.charLink) {
-                        charBadgeHTML = `<div style="display: flex; justify-content: ${justifyContent}; margin-bottom: 0.75em;"><a href="${settings.charLink}" target="_blank" style="text-decoration: none;"><span style="${charBadgeStyle}">${settings.charName}</span></a></div>`;
+                        charBadgeHTML = `<div style="text-align: ${headerTextAlign}; margin-bottom: 0.75em;"><a href="${settings.charLink}" target="_blank" style="text-decoration: none;"><span style="${charBadgeStyle}">${settings.charName}</span></a></div>`;
                     } else {
-                        charBadgeHTML = `<div style="display: flex; justify-content: ${justifyContent}; margin-bottom: 0.75em;"><span style="${charBadgeStyle}">${settings.charName}</span></div>`;
+                        charBadgeHTML = `<div style="text-align: ${headerTextAlign}; margin-bottom: 0.75em;"><span style="${charBadgeStyle}">${settings.charName}</span></div>`;
                     }
                 }
                 logTitleHTML = `<p style="margin: 0; font-size: ${settings.logTitleSize}em; font-weight: 800; color: ${settings.textColor}; letter-spacing: -0.02em; text-align: ${headerTextAlign};">${settings.logTitle}</p>`;
@@ -1503,7 +1877,8 @@ function updatePreview() {
                 // 배지만 있을 때 아래 여백 제거
                 const badgeMargin = (settings.logTitle || settings.charName) ? "margin: 0 8px 8px 0;" : "margin: 0 8px 0 0;";
                 const tagsWithFixedMargin = tags.map(tag => tag.replace(/margin: 0 8px 8px 0;/g, badgeMargin));
-                tagsHTML = `<div style="${marginTop} display: flex; flex-wrap: wrap; justify-content: ${justifyContent};">${tagsWithFixedMargin.join("")}</div>`;
+                // text-align 사용 (아카라이브가 flex 속성 삭제함)
+                tagsHTML = `<div style="${marginTop} text-align: ${settings.headerAlign};">${tagsWithFixedMargin.join("")}</div>`;
             }
 
             headerHTML = `<div style="margin-bottom: 1.5em; padding: 1.5em; background: linear-gradient(135deg, ${headerBgLight} 0%, ${headerBgDark} 100%); border-radius: 16px; border: 1px solid ${borderColor}40;">${charBadgeHTML}${logTitleHTML}${tagsHTML}</div>`;
@@ -1670,6 +2045,10 @@ function syncUIFromSettings() {
         "style-italic": "italicColor",
         "style-dialogue": "dialogueColor",
         "style-dialogue-bg": "dialogueBgColor",
+        "style-quote": "quoteColor",
+        "style-quote-bg": "quoteBgColor",
+        "style-heading": "headingColor",
+        "style-divider": "dividerColor",
         "style-ai-bubble": "aiBubbleColor",
         "style-user-bubble": "userBubbleColor",
         "style-badge-model": "badgeModelColor",
@@ -1698,6 +2077,10 @@ const colorInputs = [
     { colorId: "style-italic", textId: "style-italic-text", key: "italicColor" },
     { colorId: "style-dialogue", textId: "style-dialogue-text", key: "dialogueColor" },
     { colorId: "style-dialogue-bg", textId: "style-dialogue-bg-text", key: "dialogueBgColor" },
+    { colorId: "style-quote", textId: "style-quote-text", key: "quoteColor" },
+    { colorId: "style-quote-bg", textId: "style-quote-bg-text", key: "quoteBgColor" },
+    { colorId: "style-heading", textId: "style-heading-text", key: "headingColor" },
+    { colorId: "style-divider", textId: "style-divider-text", key: "dividerColor" },
     { colorId: "style-ai-bubble", textId: "style-ai-bubble-text", key: "aiBubbleColor" },
     { colorId: "style-user-bubble", textId: "style-user-bubble-text", key: "userBubbleColor" },
     { colorId: "style-badge-model", textId: "style-badge-model-text", key: "badgeModelColor" },
@@ -2080,6 +2463,9 @@ if (hasStoredData && logBlocks.length > 0) {
     createLogBlock("로그 1", "", false);
 }
 
+// 초기 히스토리 상태 저장
+pushHistory();
+
 // 전체 UI 동기화 함수 (캐릭터 정보, 레인지 슬라이더 등)
 function syncAllUIFromSettings() {
     // 캐릭터 정보 동기화
@@ -2327,6 +2713,23 @@ if (themeToggleBtn) {
 
 // ===== 키보드 단축키 =====
 document.addEventListener('keydown', (e) => {
+    // contenteditable에서 Alt+A/S 단축키 처리
+    const isContentEditable = document.activeElement.getAttribute('contenteditable') === 'true';
+
+    if (isContentEditable && e.altKey && (e.key === 'a' || e.key === 'A' || e.key === 's' || e.key === 'S')) {
+        e.preventDefault();
+        const marker = (e.key === 'a' || e.key === 'A') ? '>> ' : '<< ';
+        insertMarkerAtCurrentLine(marker);
+        return;
+    }
+
+    // Alt+↑/↓: 블록 순서 이동
+    if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown') && lastFocusedBlockId !== null) {
+        e.preventDefault();
+        moveBlockByKeyboard(e.key === 'ArrowUp' ? -1 : 1);
+        return;
+    }
+
     // 입력 필드에서는 단축키 무시
     const isInputFocused = document.activeElement.tagName === 'INPUT' ||
         document.activeElement.tagName === 'TEXTAREA';
@@ -2342,6 +2745,24 @@ document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
         closeHelpModal();
         return;
+    }
+
+    // Ctrl+Z: Undo (입력 필드가 아닐 때)
+    if (e.ctrlKey && !e.shiftKey && e.key === 'z' && !isInputFocused && !isContentEditable) {
+        e.preventDefault();
+        undo();
+        return;
+    }
+
+    // Ctrl+Y 또는 Ctrl+Shift+Z: Redo (입력 필드가 아닐 때)
+    if ((e.ctrlKey && e.key === 'y') || (e.ctrlKey && e.shiftKey && e.key === 'Z' || e.key === 'z')) {
+        if (!isInputFocused && !isContentEditable) {
+            if (e.key === 'y' || (e.shiftKey && (e.key === 'Z' || e.key === 'z'))) {
+                e.preventDefault();
+                redo();
+                return;
+            }
+        }
     }
 
     // 입력 중이면 나머지 단축키 무시
@@ -2369,6 +2790,155 @@ document.addEventListener('keydown', (e) => {
         return;
     }
 });
+
+// ===== 블록 키보드 이동 =====
+function moveBlockByKeyboard(direction) {
+    if (lastFocusedBlockId === null) return;
+
+    const currentIndex = logBlocks.findIndex(b => b.id === lastFocusedBlockId);
+    if (currentIndex === -1) return;
+
+    const newIndex = currentIndex + direction;
+
+    // 범위 체크
+    if (newIndex < 0 || newIndex >= logBlocks.length) {
+        showToast(direction < 0 ? '첫 번째 블록입니다' : '마지막 블록입니다');
+        return;
+    }
+
+    // 블록 순서 변경
+    const [movedBlock] = logBlocks.splice(currentIndex, 1);
+    logBlocks.splice(newIndex, 0, movedBlock);
+
+    // 렌더링 및 저장
+    renderLogBlocks();
+    updatePreview();
+    saveToStorage();
+
+    // 이동된 블록에 포커스 유지 및 애니메이션
+    setTimeout(() => {
+        const movedBlockEl = document.querySelector(`.log-block[data-block-id="${lastFocusedBlockId}"]`);
+        if (movedBlockEl) {
+            movedBlockEl.classList.add('block-moved');
+            movedBlockEl.querySelector('.log-block-textarea')?.focus();
+            setTimeout(() => {
+                movedBlockEl.classList.remove('block-moved');
+            }, 300);
+        }
+    }, 10);
+}
+
+// ===== 마커 삽입 함수 =====
+function insertMarkerAtCurrentLine(marker) {
+    const selection = window.getSelection();
+    if (!selection.rangeCount) return;
+
+    const range = selection.getRangeAt(0);
+    const container = range.startContainer;
+
+    // 현재 줄의 시작 위치 찾기
+    let textNode = container;
+    let offset = range.startOffset;
+
+    // 텍스트 노드가 아니면 텍스트 노드 찾기
+    if (textNode.nodeType !== Node.TEXT_NODE) {
+        // 자식 노드 중에서 텍스트 노드 찾기
+        const childNodes = textNode.childNodes;
+        if (childNodes.length > 0 && offset < childNodes.length) {
+            textNode = childNodes[offset];
+            offset = 0;
+        } else if (childNodes.length > 0) {
+            textNode = childNodes[childNodes.length - 1];
+            offset = textNode.textContent ? textNode.textContent.length : 0;
+        }
+    }
+
+    // 텍스트 노드가 아직도 아니면 리턴
+    if (textNode.nodeType !== Node.TEXT_NODE) {
+        // 빈 contenteditable인 경우 직접 마커 삽입
+        const editableEl = document.activeElement;
+        if (editableEl.getAttribute('contenteditable') === 'true') {
+            const currentText = editableEl.textContent || '';
+            if (currentText.trim() === '') {
+                editableEl.textContent = marker;
+                // 커서를 마커 뒤로 이동
+                const newRange = document.createRange();
+                const newTextNode = editableEl.firstChild;
+                if (newTextNode) {
+                    newRange.setStart(newTextNode, marker.length);
+                    newRange.collapse(true);
+                    selection.removeAllRanges();
+                    selection.addRange(newRange);
+                }
+            }
+        }
+        return;
+    }
+
+    const text = textNode.textContent;
+
+    // 현재 커서 위치에서 줄의 시작 찾기
+    let lineStart = offset;
+    while (lineStart > 0 && text[lineStart - 1] !== '\n') {
+        lineStart--;
+    }
+
+    // 현재 줄의 시작 부분 가져오기
+    const lineEnd = text.indexOf('\n', offset);
+    const currentLine = text.substring(lineStart, lineEnd === -1 ? text.length : lineEnd);
+
+    // 이미 마커가 있는지 확인
+    const aiMarker = '>> ';
+    const userMarker = '<< ';
+
+    let newText;
+    let cursorAdjust = 0;
+
+    if (currentLine.startsWith(aiMarker)) {
+        // AI 마커가 있으면 제거하고 새 마커 삽입 (토글)
+        if (marker === aiMarker) {
+            // 같은 마커면 제거만
+            newText = text.substring(0, lineStart) + text.substring(lineStart + aiMarker.length);
+            cursorAdjust = -aiMarker.length;
+        } else {
+            // 다른 마커면 교체
+            newText = text.substring(0, lineStart) + marker + text.substring(lineStart + aiMarker.length);
+            cursorAdjust = 0;
+        }
+    } else if (currentLine.startsWith(userMarker)) {
+        // User 마커가 있으면 제거하고 새 마커 삽입 (토글)
+        if (marker === userMarker) {
+            // 같은 마커면 제거만
+            newText = text.substring(0, lineStart) + text.substring(lineStart + userMarker.length);
+            cursorAdjust = -userMarker.length;
+        } else {
+            // 다른 마커면 교체
+            newText = text.substring(0, lineStart) + marker + text.substring(lineStart + userMarker.length);
+            cursorAdjust = 0;
+        }
+    } else {
+        // 마커 없으면 추가
+        newText = text.substring(0, lineStart) + marker + text.substring(lineStart);
+        cursorAdjust = marker.length;
+    }
+
+    // 텍스트 업데이트
+    textNode.textContent = newText;
+
+    // 커서 위치 복원
+    const newOffset = Math.max(0, Math.min(offset + cursorAdjust, newText.length));
+    const newRange = document.createRange();
+    newRange.setStart(textNode, newOffset);
+    newRange.collapse(true);
+    selection.removeAllRanges();
+    selection.addRange(newRange);
+
+    // 변경 이벤트 트리거
+    const editableEl = document.activeElement;
+    if (editableEl) {
+        editableEl.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+}
 
 // 토스트 메시지 표시
 function showToast(message) {
@@ -2416,6 +2986,30 @@ function createHelpModal() {
                 <div class="shortcut-group">
                     <h3>편집</h3>
                     <div class="shortcut-item">
+                        <span class="shortcut-key">Ctrl + Z</span>
+                        <span class="shortcut-desc">되돌리기 (Undo)</span>
+                    </div>
+                    <div class="shortcut-item">
+                        <span class="shortcut-key">Ctrl + Y</span>
+                        <span class="shortcut-desc">다시 실행 (Redo)</span>
+                    </div>
+                    <div class="shortcut-item">
+                        <span class="shortcut-key">Alt + A</span>
+                        <span class="shortcut-desc">AI 마커 (>>) 삽입/제거</span>
+                    </div>
+                    <div class="shortcut-item">
+                        <span class="shortcut-key">Alt + S</span>
+                        <span class="shortcut-desc">User 마커 (<<) 삽입/제거</span>
+                    </div>
+                    <div class="shortcut-item">
+                        <span class="shortcut-key">Alt + ↑</span>
+                        <span class="shortcut-desc">블록 위로 이동</span>
+                    </div>
+                    <div class="shortcut-item">
+                        <span class="shortcut-key">Alt + ↓</span>
+                        <span class="shortcut-desc">블록 아래로 이동</span>
+                    </div>
+                    <div class="shortcut-item">
                         <span class="shortcut-key">Ctrl + N</span>
                         <span class="shortcut-desc">새 블록 추가</span>
                     </div>
@@ -2431,6 +3025,7 @@ function createHelpModal() {
                 <div class="shortcut-group">
                     <h3>팁</h3>
                     <p class="shortcut-tip">☰ 아이콘을 드래그하여 블록 순서를 변경할 수 있습니다.</p>
+                    <p class="shortcut-tip">📷 이미지를 블록에 드래그앤드롭으로 추가할 수 있습니다.</p>
                     <p class="shortcut-tip">설정은 자동으로 브라우저에 저장됩니다.</p>
                 </div>
             </div>
@@ -2591,6 +3186,402 @@ if (removeBracketsBtn) {
         if (confirm('모든 블록에서 [대괄호] 안의 텍스트를 제거합니다.\n계속하시겠습니까?')) {
             removeAllBracketedText();
         }
+    });
+}
+
+// ===== 찾기 및 바꾸기 =====
+const findReplaceBtn = document.getElementById('find-replace-btn');
+
+function createFindReplaceModal() {
+    const modal = document.createElement('div');
+    modal.id = 'find-replace-modal';
+    modal.className = 'find-replace-modal';
+    modal.innerHTML = `
+        <div class="find-replace-backdrop"></div>
+        <div class="find-replace-content">
+            <div class="find-replace-header">
+                <h2>🔍 찾기 및 바꾸기</h2>
+                <button class="find-replace-close" type="button">✕</button>
+            </div>
+            <div class="find-replace-body">
+                <div class="find-replace-row">
+                    <label class="find-replace-label">찾을 텍스트</label>
+                    <input type="text" class="find-replace-input" id="find-input" placeholder="예: {{user}}" autocomplete="off">
+                </div>
+                <div class="find-replace-row">
+                    <label class="find-replace-label">바꿀 텍스트</label>
+                    <input type="text" class="find-replace-input" id="replace-input" placeholder="예: 유저" autocomplete="off">
+                </div>
+                <div class="find-replace-options">
+                    <label class="find-replace-option">
+                        <input type="checkbox" id="find-regex">
+                        <span>정규식 사용</span>
+                    </label>
+                    <label class="find-replace-option">
+                        <input type="checkbox" id="find-case-sensitive">
+                        <span>대소문자 구분</span>
+                    </label>
+                </div>
+                <div class="find-replace-presets">
+                    <span class="presets-label">자주 쓰는 패턴:</span>
+                    <button type="button" class="preset-btn" data-find="{{user}}" data-replace="">{{user}}</button>
+                    <button type="button" class="preset-btn" data-find="{{char}}" data-replace="">{{char}}</button>
+                    <button type="button" class="preset-btn" data-find="\\*\\*(.+?)\\*\\*" data-replace="$1" data-regex="true">**볼드** 제거</button>
+                    <button type="button" class="preset-btn" data-find="\\*([^*]+?)\\*" data-replace="$1" data-regex="true">*이탤릭* 제거</button>
+                </div>
+                <div class="find-replace-actions">
+                    <span class="find-replace-result" id="find-replace-result"></span>
+                    <button type="button" class="find-replace-btn find-replace-btn--secondary" id="find-count-btn">개수 확인</button>
+                    <button type="button" class="find-replace-btn find-replace-btn--primary" id="replace-all-btn">모두 바꾸기</button>
+                </div>
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    // 이벤트 리스너
+    modal.querySelector('.find-replace-backdrop').addEventListener('click', closeFindReplaceModal);
+    modal.querySelector('.find-replace-close').addEventListener('click', closeFindReplaceModal);
+
+    // 프리셋 버튼
+    modal.querySelectorAll('.preset-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.getElementById('find-input').value = btn.dataset.find;
+            document.getElementById('replace-input').value = btn.dataset.replace || '';
+            document.getElementById('find-regex').checked = btn.dataset.regex === 'true';
+            document.getElementById('find-replace-result').textContent = '';
+        });
+    });
+
+    // 개수 확인 버튼
+    modal.querySelector('#find-count-btn').addEventListener('click', () => {
+        const count = countMatches();
+        const resultEl = document.getElementById('find-replace-result');
+        if (count === 0) {
+            resultEl.textContent = '일치하는 항목이 없습니다.';
+            resultEl.style.color = '#ef4444';
+        } else {
+            resultEl.textContent = `${count}개 발견`;
+            resultEl.style.color = '#22c55e';
+        }
+    });
+
+    // 모두 바꾸기 버튼
+    modal.querySelector('#replace-all-btn').addEventListener('click', () => {
+        const count = replaceAll();
+        const resultEl = document.getElementById('find-replace-result');
+        if (count === 0) {
+            resultEl.textContent = '일치하는 항목이 없습니다.';
+            resultEl.style.color = '#ef4444';
+        } else {
+            resultEl.textContent = `${count}개 변경 완료!`;
+            resultEl.style.color = '#22c55e';
+            // 잠시 후 모달 닫기
+            setTimeout(() => {
+                closeFindReplaceModal();
+            }, 1000);
+        }
+    });
+
+    // Enter 키로 바꾸기 실행
+    modal.querySelectorAll('.find-replace-input').forEach(input => {
+        input.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                modal.querySelector('#replace-all-btn').click();
+            }
+        });
+    });
+}
+
+function countMatches() {
+    const findText = document.getElementById('find-input').value;
+    if (!findText) return 0;
+
+    const useRegex = document.getElementById('find-regex').checked;
+    const caseSensitive = document.getElementById('find-case-sensitive').checked;
+
+    let count = 0;
+
+    try {
+        const flags = caseSensitive ? 'g' : 'gi';
+        const regex = useRegex ? new RegExp(findText, flags) : new RegExp(escapeRegExp(findText), flags);
+
+        logBlocks.forEach(block => {
+            const matches = block.content.match(regex);
+            if (matches) {
+                count += matches.length;
+            }
+        });
+    } catch (e) {
+        showToast('잘못된 정규식입니다: ' + e.message);
+        return 0;
+    }
+
+    return count;
+}
+
+function replaceAll() {
+    const findText = document.getElementById('find-input').value;
+    const replaceText = document.getElementById('replace-input').value;
+    if (!findText) return 0;
+
+    const useRegex = document.getElementById('find-regex').checked;
+    const caseSensitive = document.getElementById('find-case-sensitive').checked;
+
+    let totalCount = 0;
+
+    try {
+        const flags = caseSensitive ? 'g' : 'gi';
+        const regex = useRegex ? new RegExp(findText, flags) : new RegExp(escapeRegExp(findText), flags);
+
+        logBlocks.forEach(block => {
+            const matches = block.content.match(regex);
+            if (matches) {
+                totalCount += matches.length;
+                block.content = block.content.replace(regex, replaceText);
+            }
+        });
+
+        if (totalCount > 0) {
+            renderLogBlocks();
+            updatePreview();
+            saveToStorage();
+        }
+    } catch (e) {
+        showToast('잘못된 정규식입니다: ' + e.message);
+        return 0;
+    }
+
+    return totalCount;
+}
+
+function escapeRegExp(string) {
+    return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function openFindReplaceModal() {
+    let modal = document.getElementById('find-replace-modal');
+    if (!modal) {
+        createFindReplaceModal();
+        modal = document.getElementById('find-replace-modal');
+    }
+    modal.classList.add('open');
+    // 포커스를 찾기 입력창으로
+    setTimeout(() => {
+        document.getElementById('find-input').focus();
+    }, 100);
+}
+
+function closeFindReplaceModal() {
+    const modal = document.getElementById('find-replace-modal');
+    if (modal) {
+        modal.classList.remove('open');
+        document.getElementById('find-replace-result').textContent = '';
+    }
+}
+
+if (findReplaceBtn) {
+    findReplaceBtn.addEventListener('click', openFindReplaceModal);
+}
+
+// ===== 전체 초기화 =====
+const resetAllBtn = document.getElementById('reset-all-btn');
+
+// 기본 설정값 (초기화용)
+const defaultSettings = {
+    logTitle: "",
+    charName: "",
+    charLink: "",
+    userName: "",
+    aiModel: "",
+    promptName: "",
+    subModel: "",
+    bgColor: "#ffffff",
+    textColor: "#18181b",
+    charColor: "#18181b",
+    userColor: "#71717a",
+    boldColor: "#dc2626",
+    italicColor: "#6366f1",
+    dialogueColor: "#059669",
+    dialogueBgColor: "#ecfdf5",
+    quoteColor: "#6b7280",
+    quoteBgColor: "#f3f4f6",
+    headingColor: "#111827",
+    dividerColor: "#d1d5db",
+    aiBubbleColor: "#f4f4f5",
+    userBubbleColor: "#dbeafe",
+    fontFamily: "Pretendard, sans-serif",
+    fontSize: 16,
+    fontWeight: 400,
+    containerWidth: 800,
+    containerPadding: 2,
+    borderRadius: 16,
+    bubbleRadius: 16,
+    bubblePadding: 1,
+    bubbleMaxWidth: 85,
+    bubbleGap: 1,
+    blockGap: 1.5,
+    lineHeight: 1.8,
+    letterSpacing: 0,
+    paragraphSpacing: 1.2,
+    headerAlign: "left",
+    logTitleSize: 1.8,
+    borderWidth: 0,
+    borderColor: "#e4e4e7",
+    borderStyle: "solid",
+    boxShadow: true,
+    shadowIntensity: 30,
+    bgGradient: false,
+    bgGradientColor: "#e0e7ff",
+    bgGradientDirection: "to bottom right",
+    textAlign: "justify",
+    badgeModelColor: "#18181b",
+    badgePromptColor: "#71717a",
+    badgeSubColor: "#a1a1aa",
+    badgeRadius: 20,
+    badgeStyle: "filled",
+    nametagFontSize: 0.75,
+    bubbleBorder: false,
+    bubbleBorderWidth: 2,
+    bubbleBorderColor: "#6366f1",
+    bubbleBorderLeftOnly: false,
+    imageMaxWidth: 500,
+    imageMargin: 0.5,
+    imageBorderRadius: 8,
+    imageAlign: "center",
+    imageBorderWidth: 0,
+    imageBorderColor: "#e5e5e5",
+    imageShadow: "none",
+    showNametag: true,
+};
+
+function resetAll() {
+    // 설정 초기화
+    Object.assign(settings, defaultSettings);
+
+    // 블록 초기화
+    logBlocks = [];
+    blockIdCounter = 0;
+
+    // 새 블록 생성
+    createLogBlock("로그 1", "", false, true);
+
+    // UI 동기화
+    syncUIFromSettings();
+    syncAllUIFromSettings();
+    renderLogBlocks();
+    updatePreview();
+    saveToStorage();
+
+    showToast('모든 블록과 설정이 초기화되었습니다.');
+}
+
+if (resetAllBtn) {
+    resetAllBtn.addEventListener('click', () => {
+        if (confirm('⚠️ 모든 블록과 설정을 초기화합니다.\n\n저장된 내용이 모두 삭제됩니다.\n계속하시겠습니까?')) {
+            resetAll();
+        }
+    });
+}
+
+// ===== 설정 내보내기/가져오기 =====
+const exportSettingsBtn = document.getElementById('export-settings-btn');
+const importSettingsBtn = document.getElementById('import-settings-btn');
+const settingsFileInput = document.getElementById('settings-file-input');
+
+function exportSettings() {
+    const exportData = {
+        version: 1,
+        exportedAt: new Date().toISOString(),
+        settings: { ...settings },
+        blocks: logBlocks.map(b => ({
+            title: b.title,
+            content: b.content,
+            collapsible: b.collapsible
+        }))
+    };
+
+    const jsonStr = JSON.stringify(exportData, null, 2);
+    const blob = new Blob([jsonStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `log-studio-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    showToast('설정이 내보내졌습니다.');
+}
+
+function importSettings(jsonData) {
+    try {
+        // 버전 체크
+        if (!jsonData.version || !jsonData.settings) {
+            throw new Error('올바른 Log Studio 백업 파일이 아닙니다.');
+        }
+
+        // 설정 적용
+        Object.assign(settings, jsonData.settings);
+
+        // 블록 적용 (있는 경우)
+        if (jsonData.blocks && Array.isArray(jsonData.blocks)) {
+            logBlocks = [];
+            blockIdCounter = 0;
+
+            jsonData.blocks.forEach(b => {
+                createLogBlock(b.title, b.content, b.collapsible, true);
+            });
+        }
+
+        // UI 동기화
+        syncUIFromSettings();
+        syncAllUIFromSettings();
+        renderLogBlocks();
+        updatePreview();
+        saveToStorage();
+
+        showToast('설정을 불러왔습니다.');
+        return true;
+    } catch (e) {
+        console.error('설정 가져오기 오류:', e);
+        showToast('설정 파일을 불러오는데 실패했습니다: ' + e.message);
+        return false;
+    }
+}
+
+if (exportSettingsBtn) {
+    exportSettingsBtn.addEventListener('click', exportSettings);
+}
+
+if (importSettingsBtn && settingsFileInput) {
+    importSettingsBtn.addEventListener('click', () => {
+        settingsFileInput.click();
+    });
+
+    settingsFileInput.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            try {
+                const jsonData = JSON.parse(event.target.result);
+                importSettings(jsonData);
+            } catch (err) {
+                showToast('올바른 JSON 파일이 아닙니다.');
+            }
+        };
+        reader.onerror = () => {
+            showToast('파일을 읽는데 실패했습니다.');
+        };
+        reader.readAsText(file);
+
+        // 같은 파일 다시 선택 가능하도록
+        settingsFileInput.value = '';
     });
 }
 

@@ -60,6 +60,13 @@
                 <button id="remove-brackets-btn" class="log-action-btn" type="button" title="모든 블록에서 [대괄호] 텍스트 제거">
                   🧹 [ ] 제거
                 </button>
+                <button id="find-replace-btn" class="log-action-btn" type="button" title="찾기 및 바꾸기">
+                  🔍 바꾸기
+                </button>
+                <button id="reset-all-btn" class="log-action-btn log-action-btn--danger" type="button"
+                  title="모든 블록과 설정 초기화">
+                  🗑️ 초기화
+                </button>
                 <button id="add-block-btn" class="add-block-btn" type="button" title="블록 추가">
                   <span>+</span> 블록 추가
                 </button>
@@ -202,6 +209,15 @@
                 <div class="user-preset-list" id="user-preset-list">
                   <!-- 저장된 프리셋이 여기에 표시됨 -->
                 </div>
+                <div class="settings-export-import">
+                  <button type="button" class="export-import-btn" id="export-settings-btn" title="현재 설정을 JSON 파일로 내보내기">
+                    📤 설정 내보내기
+                  </button>
+                  <button type="button" class="export-import-btn" id="import-settings-btn" title="JSON 파일에서 설정 가져오기">
+                    📥 설정 가져오기
+                  </button>
+                  <input type="file" id="settings-file-input" accept=".json" style="display: none;">
+                </div>
               </div>
             </div>
 
@@ -261,6 +277,41 @@
                   <input type="color" class="setting-color" id="style-dialogue-bg" value="#ecfdf5">
                   <input type="text" class="setting-input setting-input--color" id="style-dialogue-bg-text"
                     value="#ecfdf5">
+                </div>
+              </div>
+            </div>
+            <!-- 인용구 색상 -->
+            <div class="setting-row">
+              <div class="setting-group">
+                <label class="setting-label">인용구('') 색</label>
+                <div class="color-input-wrap">
+                  <input type="color" class="setting-color" id="style-quote" value="#6b7280">
+                  <input type="text" class="setting-input setting-input--color" id="style-quote-text" value="#6b7280">
+                </div>
+              </div>
+              <div class="setting-group">
+                <label class="setting-label">인용구 배경색</label>
+                <div class="color-input-wrap">
+                  <input type="color" class="setting-color" id="style-quote-bg" value="#f3f4f6">
+                  <input type="text" class="setting-input setting-input--color" id="style-quote-bg-text"
+                    value="#f3f4f6">
+                </div>
+              </div>
+            </div>
+            <!-- 마크다운 제목 & 구분선 색상 -->
+            <div class="setting-row">
+              <div class="setting-group">
+                <label class="setting-label">마크다운 제목(#) 색</label>
+                <div class="color-input-wrap">
+                  <input type="color" class="setting-color" id="style-heading" value="#111827">
+                  <input type="text" class="setting-input setting-input--color" id="style-heading-text" value="#111827">
+                </div>
+              </div>
+              <div class="setting-group">
+                <label class="setting-label">구분선(---) 색</label>
+                <div class="color-input-wrap">
+                  <input type="color" class="setting-color" id="style-divider" value="#d1d5db">
+                  <input type="text" class="setting-input setting-input--color" id="style-divider-text" value="#d1d5db">
                 </div>
               </div>
             </div>
@@ -783,6 +834,30 @@
                 <div class="marker-item">
                   <code>(없음)</code>
                   <span>일반 텍스트 (나레이션)</span>
+                </div>
+                <div class="marker-item">
+                  <code>"대사"</code>
+                  <span>대사 하이라이트</span>
+                </div>
+                <div class="marker-item">
+                  <code>'인용구'</code>
+                  <span>인용구 스타일</span>
+                </div>
+                <div class="marker-item">
+                  <code># ~ ###</code>
+                  <span>마크다운 제목 (h1~h3)</span>
+                </div>
+                <div class="marker-item">
+                  <code>---</code>
+                  <span>구분선</span>
+                </div>
+                <div class="marker-item">
+                  <code>**볼드**</code>
+                  <span>굵은 글씨</span>
+                </div>
+                <div class="marker-item">
+                  <code>*이탤릭*</code>
+                  <span>기울임 글씨</span>
                 </div>
               </div>
             </div>
