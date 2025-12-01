@@ -3244,6 +3244,8 @@ function createFindReplaceModal() {
                     <span class="presets-label">자주 쓰는 패턴:</span>
                     <button type="button" class="preset-btn" data-find="{{user}}" data-replace="">{{user}}</button>
                     <button type="button" class="preset-btn" data-find="{{char}}" data-replace="">{{char}}</button>
+                    <button type="button" class="preset-btn" data-preset="quote-newline">"" 개행</button>
+                    <button type="button" class="preset-btn" data-preset="quote-fix">"" → ""</button>
                     <button type="button" class="preset-btn" data-find="\\*\\*(.+?)\\*\\*" data-replace="$1" data-regex="true">**볼드** 제거</button>
                     <button type="button" class="preset-btn" data-find="\\*([^*]+?)\\*" data-replace="$1" data-regex="true">*이탤릭* 제거</button>
                 </div>
@@ -3262,12 +3264,40 @@ function createFindReplaceModal() {
     modal.querySelector('.find-replace-backdrop').addEventListener('click', closeFindReplaceModal);
     modal.querySelector('.find-replace-close').addEventListener('click', closeFindReplaceModal);
 
+    // 특수 프리셋 정의
+    // 프리셋 1: 일반 따옴표 "대사" 앞뒤로 개행 추가
+    // 프리셋 2: 둥근따옴표 ""를 일반따옴표 ""로 변환
+    const specialPresets = {
+        'quote-newline': {
+            find: '"(.+?)"',
+            replace: '\\n"$1"\\n',
+            regex: true
+        },
+        'quote-fix': {
+            find: '\u201C(.+?)\u201D',
+            replace: '"$1"',
+            regex: true
+        }
+    };
+
     // 프리셋 버튼
     modal.querySelectorAll('.preset-btn').forEach(btn => {
         btn.addEventListener('click', () => {
-            document.getElementById('find-input').value = btn.dataset.find;
-            document.getElementById('replace-input').value = btn.dataset.replace || '';
-            document.getElementById('find-regex').checked = btn.dataset.regex === 'true';
+            const presetName = btn.dataset.preset;
+            
+            if (presetName && specialPresets[presetName]) {
+                // 특수 프리셋 처리
+                const preset = specialPresets[presetName];
+                document.getElementById('find-input').value = preset.find;
+                document.getElementById('replace-input').value = preset.replace;
+                document.getElementById('find-regex').checked = preset.regex;
+            } else {
+                // 일반 프리셋 처리
+                document.getElementById('find-input').value = btn.dataset.find || '';
+                document.getElementById('replace-input').value = btn.dataset.replace || '';
+                document.getElementById('find-regex').checked = btn.dataset.regex === 'true';
+            }
+            
             document.getElementById('find-replace-result').textContent = '';
         });
     });
@@ -3341,11 +3371,14 @@ function countMatches() {
 
 function replaceAll() {
     const findText = document.getElementById('find-input').value;
-    const replaceText = document.getElementById('replace-input').value;
+    let replaceText = document.getElementById('replace-input').value;
     if (!findText) return 0;
 
     const useRegex = document.getElementById('find-regex').checked;
     const caseSensitive = document.getElementById('find-case-sensitive').checked;
+
+    // 이스케이프 시퀀스 처리 (\n → 실제 개행, \t → 탭)
+    replaceText = replaceText.replace(/\\n/g, '\n').replace(/\\t/g, '\t');
 
     let totalCount = 0;
 
