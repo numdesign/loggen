@@ -124,6 +124,33 @@ function setContentEditableContent(el, content) {
     el.innerHTML = processed;
 }
 
+// risuai.xyz/sw/img/ URL을 실제 이미지 URL로 변환
+function convertRisuaiUrl(url) {
+    // risuai.xyz/sw/img/[hex] 패턴 감지
+    const risuaiSwPattern = /^https?:\/\/risuai\.xyz\/sw\/img\/([a-f0-9]+)$/i;
+    const match = url.match(risuaiSwPattern);
+
+    if (match) {
+        const hexString = match[1];
+        try {
+            // hex를 ASCII로 디코딩
+            let decoded = '';
+            for (let i = 0; i < hexString.length; i += 2) {
+                decoded += String.fromCharCode(parseInt(hexString.substr(i, 2), 16));
+            }
+            // 디코딩된 경로로 실제 URL 생성
+            const realUrl = `https://sv.risuai.xyz/rs/${decoded}`;
+            console.log('[RisuAI URL 변환]', url, '→', realUrl);
+            return realUrl;
+        } catch (err) {
+            console.warn('[RisuAI URL 변환 실패]', err);
+            return url;
+        }
+    }
+
+    return url;
+}
+
 // Canvas를 통한 이미지 로드 시도 (CORS 우회용)
 async function tryLoadImageViaCanvas(imgSrc) {
     return new Promise((resolve) => {
@@ -342,11 +369,15 @@ async function processHtmlWithImages(html) {
 
     // 이미지 처리 및 placeholder 교체
     for (let i = 0; i < imagesToProcess.length; i++) {
-        const imgSrc = imagesToProcess[i];
+        let imgSrc = imagesToProcess[i];
         let base64 = null;
 
         // 디버깅: 이미지 src 확인
         console.log(`[이미지 ${i}] src:`, imgSrc);
+
+        // risuai.xyz/sw/img/ URL을 실제 이미지 URL로 변환
+        imgSrc = convertRisuaiUrl(imgSrc);
+        console.log(`[이미지 ${i}] 변환 후 src:`, imgSrc);
 
         try {
             if (!imgSrc || imgSrc.trim() === '') {
@@ -368,8 +399,15 @@ async function processHtmlWithImages(html) {
                     console.log(`[이미지 ${i}] fetch 응답:`, response.status, response.ok);
                     const blob = await response.blob();
                     console.log(`[이미지 ${i}] blob 생성 완료:`, blob.type, blob.size);
-                    base64 = await blobToBase64(blob);
-                    console.log(`[이미지 ${i}] base64 변환 완료, 길이:`, base64?.length);
+
+                    // blob.type이 이미지가 아니면 Canvas 방식으로 시도
+                    if (blob.type && blob.type.startsWith('image/')) {
+                        base64 = await blobToBase64(blob);
+                        console.log(`[이미지 ${i}] base64 변환 완료, 길이:`, base64?.length);
+                    } else {
+                        console.warn(`[이미지 ${i}] blob이 이미지가 아님 (${blob.type}), Canvas 시도...`);
+                        base64 = await tryLoadImageViaCanvas(imgSrc);
+                    }
                 } catch (err) {
                     console.warn(`[이미지 ${i}] 외부 이미지 fetch 실패:`, err);
                     // fetch 실패 시 Canvas 방식 시도
