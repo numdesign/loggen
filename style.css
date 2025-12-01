@@ -2002,6 +2002,7 @@ body.theme-dark .style-accordion-header:hover {
     margin: 0;
     font-size: 1.125rem;
     font-weight: 700;
+    color: var(--text);
 }
 
 .find-replace-close {
